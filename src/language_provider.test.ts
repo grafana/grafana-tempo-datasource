@@ -1,7 +1,7 @@
 import { uniq } from 'lodash';
 
 import { v2Tags } from './SearchTraceQLEditor/mocks';
-import { TraceqlSearchScope } from './dataquery.gen';
+import { TraceqlSearchScope } from './dataquery';
 import { type TempoDatasource } from './datasource';
 import TempoLanguageProvider from './language_provider';
 import { intrinsics } from './traceql/traceql';

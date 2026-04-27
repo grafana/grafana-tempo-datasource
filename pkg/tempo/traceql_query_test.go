@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana/pkg/tsdb/tempo/kinds/dataquery"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestCreateMetricsQuery_Success(t *testing.T) {
 	logger := backend.NewLoggerWith("logger", "tsdb.tempo.test")
-	service := &Service{
+	service := &DataSource{
 		logger: logger,
 	}
 	dsInfo := &DatasourceInfo{
@@ -37,7 +37,7 @@ func TestCreateMetricsQuery_Success(t *testing.T) {
 
 func TestCreateMetricsQuery_OnlyQuery(t *testing.T) {
 	logger := backend.NewLoggerWith("logger", "tsdb.tempo.test")
-	service := &Service{
+	service := &DataSource{
 		logger: logger,
 	}
 	dsInfo := &DatasourceInfo{
@@ -57,7 +57,7 @@ func TestCreateMetricsQuery_OnlyQuery(t *testing.T) {
 
 func TestCreateMetricsQuery_URLParseError(t *testing.T) {
 	logger := backend.NewLoggerWith("logger", "tsdb.tempo.test")
-	service := &Service{
+	service := &DataSource{
 		logger: logger,
 	}
 	dsInfo := &DatasourceInfo{
@@ -76,7 +76,7 @@ func TestCreateMetricsQuery_URLParseError(t *testing.T) {
 }
 
 func TestRunTraceQlQuery_NilQuery_ReturnsError(t *testing.T) {
-	service := &Service{logger: backend.NewLoggerWith("logger", "tsdb.tempo.test")}
+	service := &DataSource{logger: backend.NewLoggerWith("logger", "tsdb.tempo.test")}
 	query := backend.DataQuery{JSON: []byte(`{}`)}
 
 	res, err := service.runTraceQlQuery(context.Background(), backend.PluginContext{}, query)
@@ -87,7 +87,7 @@ func TestRunTraceQlQuery_NilQuery_ReturnsError(t *testing.T) {
 }
 
 func TestRunTraceQlQuery_EmptyQuery_ReturnsError(t *testing.T) {
-	service := &Service{logger: backend.NewLoggerWith("logger", "tsdb.tempo.test")}
+	service := &DataSource{logger: backend.NewLoggerWith("logger", "tsdb.tempo.test")}
 	query := backend.DataQuery{JSON: []byte(`{"query": ""}`)}
 
 	res, err := service.runTraceQlQuery(context.Background(), backend.PluginContext{}, query)

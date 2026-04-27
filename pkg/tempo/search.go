@@ -15,7 +15,7 @@ import (
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/grafana/pkg/tsdb/tempo/kinds/dataquery"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	"github.com/grafana/tempo/pkg/tempopb"
 	v1 "github.com/grafana/tempo/pkg/tempopb/common/v1"
 )
@@ -35,12 +35,12 @@ type TraceTableData struct {
 	attributes    map[string]interface{}
 }
 
-func (s *Service) Search(ctx context.Context, pCtx backend.PluginContext, query backend.DataQuery) (*backend.DataResponse, error) {
-	ctxLogger := s.logger.FromContext(ctx)
+func (ds *DataSource) Search(ctx context.Context, pCtx backend.PluginContext, query backend.DataQuery) (*backend.DataResponse, error) {
+	ctxLogger := ds.logger.FromContext(ctx)
 	model := &dataquery.TempoQuery{}
 	result := &backend.DataResponse{}
 
-	dsInfo, err := s.getDSInfo(ctx, pCtx)
+	dsInfo, err := ds.getDSInfo(ctx, pCtx)
 	if err != nil {
 		ctxLogger.Error("Failed to get datasource information", "error", err, "function", logEntrypoint())
 		return nil, backend.DownstreamErrorf("failed to get datasource information: %w", err)

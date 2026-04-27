@@ -8,7 +8,7 @@ import { TemporaryAlert } from '@grafana/o11y-ds-frontend';
 import { type FetchError, getTemplateSrv, isFetchError } from '@grafana/runtime';
 import { Select, Stack, useStyles2, type InputActionMeta } from '@grafana/ui';
 
-import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery.gen';
+import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery';
 import { type TempoDatasource } from '../datasource';
 import { OPTIONS_LIMIT } from '../language_provider';
 import { operators as allOperators, stringOperators, numberOperators, keywordOperators } from '../traceql/traceql';

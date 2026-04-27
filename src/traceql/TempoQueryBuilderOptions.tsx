@@ -7,7 +7,7 @@ import { EditorField, EditorRow } from '@grafana/plugin-ui';
 import { AutoSizeInput, RadioButtonGroup, TextLink, useStyles2 } from '@grafana/ui';
 
 import { QueryOptionGroup } from '../_importedDependencies/datasources/prometheus/QueryOptionGroup';
-import { SearchTableType, MetricsQueryType } from '../dataquery.gen';
+import { SearchTableType, MetricsQueryType } from '../dataquery';
 import { DEFAULT_LIMIT, DEFAULT_SPSS } from '../datasource';
 import { type TempoQuery } from '../types';
 

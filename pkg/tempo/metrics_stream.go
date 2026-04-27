@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/grafana/grafana/pkg/tsdb/tempo/traceql"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/traceql"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/tracing"
-	"github.com/grafana/grafana/pkg/tsdb/tempo/kinds/dataquery"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	"github.com/grafana/tempo/pkg/tempopb"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -23,7 +23,7 @@ type PartialTempoQuery struct {
 	MetricsQueryType *dataquery.MetricsQueryType
 }
 
-func (s *Service) runMetricsStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender, datasource *DatasourceInfo) error {
+func (ds *DataSource) runMetricsStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender, datasource *DatasourceInfo) error {
 	ctx, span := tracing.DefaultTracer().Start(ctx, "datasource.tempo.runMetricsStream")
 	defer span.End()
 
@@ -74,31 +74,31 @@ func (s *Service) runMetricsStream(ctx context.Context, req *backend.RunStreamRe
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			s.logger.Error("Error Search()", "err", err)
+			ds.logger.Error("Error Search()", "err", err)
 			if backend.IsDownstreamHTTPError(err) {
 				return backend.DownstreamError(err)
 			}
 			return err
 		}
 
-		return s.processInstantMetricsStream(ctx, stream, sender)
+		return ds.processInstantMetricsStream(ctx, stream, sender)
 	}
 
 	stream, err := datasource.StreamingClient.MetricsQueryRange(ctx, qrr)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		s.logger.Error("Error Search()", "err", err)
+		ds.logger.Error("Error Search()", "err", err)
 		if backend.IsDownstreamHTTPError(err) {
 			return backend.DownstreamError(err)
 		}
 		return err
 	}
 
-	return s.processMetricsStream(ctx, qrr.Query, stream, sender)
+	return ds.processMetricsStream(ctx, qrr.Query, stream, sender)
 }
 
-func (s *Service) processMetricsStream(ctx context.Context, query string, stream tempopb.StreamingQuerier_MetricsQueryRangeClient, sender StreamSender) error {
+func (ds *DataSource) processMetricsStream(ctx context.Context, query string, stream tempopb.StreamingQuerier_MetricsQueryRangeClient, sender StreamSender) error {
 	ctx, span := tracing.DefaultTracer().Start(ctx, "datasource.tempo.processStream")
 	defer span.End()
 	messageCount := 0
@@ -107,7 +107,7 @@ func (s *Service) processMetricsStream(ctx context.Context, query string, stream
 		messageCount++
 		span.SetAttributes(attribute.Int("message_count", messageCount))
 		if errors.Is(err, io.EOF) {
-			if err := s.sendResponse(ctx, nil, nil, dataquery.SearchStreamingStateDone, sender); err != nil {
+			if err := ds.sendResponse(ctx, nil, nil, dataquery.SearchStreamingStateDone, sender); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())
 				return err
@@ -115,7 +115,7 @@ func (s *Service) processMetricsStream(ctx context.Context, query string, stream
 			break
 		}
 		if err != nil {
-			s.logger.Error("Error receiving message", "err", err)
+			ds.logger.Error("Error receiving message", "err", err)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return err
@@ -123,7 +123,7 @@ func (s *Service) processMetricsStream(ctx context.Context, query string, stream
 
 		transformed := traceql.TransformMetricsResponse(query, *msg)
 
-		if err := s.sendResponse(ctx, transformed, msg.Metrics, dataquery.SearchStreamingStateStreaming, sender); err != nil {
+		if err := ds.sendResponse(ctx, transformed, msg.Metrics, dataquery.SearchStreamingStateStreaming, sender); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return err
@@ -133,7 +133,7 @@ func (s *Service) processMetricsStream(ctx context.Context, query string, stream
 	return nil
 }
 
-func (s *Service) processInstantMetricsStream(ctx context.Context, stream tempopb.StreamingQuerier_MetricsQueryInstantClient, sender StreamSender) error {
+func (ds *DataSource) processInstantMetricsStream(ctx context.Context, stream tempopb.StreamingQuerier_MetricsQueryInstantClient, sender StreamSender) error {
 	ctx, span := tracing.DefaultTracer().Start(ctx, "datasource.tempo.processStream")
 	defer span.End()
 	messageCount := 0
@@ -142,7 +142,7 @@ func (s *Service) processInstantMetricsStream(ctx context.Context, stream tempop
 		messageCount++
 		span.SetAttributes(attribute.Int("message_count", messageCount))
 		if errors.Is(err, io.EOF) {
-			if err := s.sendResponse(ctx, nil, nil, dataquery.SearchStreamingStateDone, sender); err != nil {
+			if err := ds.sendResponse(ctx, nil, nil, dataquery.SearchStreamingStateDone, sender); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())
 				return err
@@ -150,7 +150,7 @@ func (s *Service) processInstantMetricsStream(ctx context.Context, stream tempop
 			break
 		}
 		if err != nil {
-			s.logger.Error("Error receiving message", "err", err)
+			ds.logger.Error("Error receiving message", "err", err)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return err
@@ -158,7 +158,7 @@ func (s *Service) processInstantMetricsStream(ctx context.Context, stream tempop
 
 		transformed := traceql.TransformInstantMetricsResponse(*msg)
 
-		if err := s.sendResponse(ctx, transformed, msg.Metrics, dataquery.SearchStreamingStateStreaming, sender); err != nil {
+		if err := ds.sendResponse(ctx, transformed, msg.Metrics, dataquery.SearchStreamingStateStreaming, sender); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return err

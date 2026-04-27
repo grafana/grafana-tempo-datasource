@@ -26,7 +26,7 @@ import {
 import { createNodeGraphFrames, type TraceToProfilesData } from '@grafana/o11y-ds-frontend';
 import { getDataSourceSrv } from '@grafana/runtime';
 
-import { SearchTableType } from './dataquery.gen';
+import { SearchTableType } from './dataquery';
 import { type Span, type SpanAttributes, type Spanset, type TempoJsonData, type TraceSearchMetadata } from './types';
 
 function getAttributeValue(value: collectorTypes.opentelemetryProto.common.v1.AnyValue): any {

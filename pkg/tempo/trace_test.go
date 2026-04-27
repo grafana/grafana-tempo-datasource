@@ -8,15 +8,13 @@ import (
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTempo(t *testing.T) {
 	t.Run("createRequest v1 without time range - success", func(t *testing.T) {
-		service := &Service{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
 		req, err := service.createRequest(context.Background(), &DatasourceInfo{}, TraceRequestApiVersionV1, "traceID", 0, 0)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
@@ -24,7 +22,7 @@ func TestTempo(t *testing.T) {
 	})
 
 	t.Run("createRequest v1 with time range - success", func(t *testing.T) {
-		service := &Service{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
 		req, err := service.createRequest(context.Background(), &DatasourceInfo{}, TraceRequestApiVersionV1, "traceID", 1, 2)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
@@ -32,7 +30,7 @@ func TestTempo(t *testing.T) {
 	})
 
 	t.Run("createRequest v2 without time range - success", func(t *testing.T) {
-		service := &Service{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
 		req, err := service.createRequest(context.Background(), &DatasourceInfo{}, TraceRequestApiVersionV2, "traceID", 0, 0)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
@@ -40,7 +38,7 @@ func TestTempo(t *testing.T) {
 	})
 
 	t.Run("createRequest v2 with time range - success", func(t *testing.T) {
-		service := &Service{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
 		req, err := service.createRequest(context.Background(), &DatasourceInfo{}, TraceRequestApiVersionV2, "traceID", 1, 2)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
@@ -59,12 +57,8 @@ func TestTempo(t *testing.T) {
 		}))
 		defer server.Close()
 
-		im := datasource.NewInstanceManager(func(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-			return &DatasourceInfo{URL: server.URL, HTTPClient: server.Client()}, nil
-		})
-
-		service := &Service{
-			im:     im,
+		service := &DataSource{
+			info:   &DatasourceInfo{URL: server.URL, HTTPClient: server.Client()},
 			logger: backend.NewLoggerWith("logger", "tempo-test"),
 		}
 

@@ -9,7 +9,7 @@ import {
 } from '@grafana/data';
 import { type DataQuery } from '@grafana/schema';
 
-import { type Prometheus as GenPromQuery } from './dataquery.gen';
+import { type Prometheus as GenPromQuery } from './dataquery';
 
 // import { QueryBuilderLabelFilter, QueryEditorMode } from './querybuilder/shared/types';
 export interface QueryBuilderLabelFilter {

@@ -18,22 +18,22 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/httpclient"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
-	"github.com/grafana/grafana/pkg/tsdb/tempo/kinds/dataquery"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/tracing"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	"github.com/grafana/tempo/pkg/tempopb"
 )
 
 var (
-	_ backend.QueryDataHandler    = (*Service)(nil)
-	_ backend.CallResourceHandler = (*Service)(nil)
+	_ backend.QueryDataHandler    = (*DataSource)(nil)
+	_ backend.CallResourceHandler = (*DataSource)(nil)
 )
 
-type Service struct {
-	im              instancemgmt.InstanceManager
+type DataSource struct {
+	info            *DatasourceInfo
 	logger          log.Logger
 	tracer          trace.Tracer
 	resourceHandler backend.CallResourceHandler
@@ -45,56 +45,51 @@ type DatasourceInfo struct {
 	URL             string
 }
 
-func ProvideService(httpClientProvider *httpclient.Provider, tracer trace.Tracer) *Service {
-	s := &Service{
-		im:     datasource.NewInstanceManager(newInstanceSettings(httpClientProvider)),
-		logger: backend.NewLoggerWith("logger", "tsdb.tempo"),
-		tracer: tracer,
+// NewDatasource is the datasource.InstanceFactoryFunc registered with the
+// plugin SDK in pkg/main.go. It is invoked by Grafana whenever the datasource
+// instance settings change.
+func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+	ctxLogger := backend.NewLoggerWith("logger", "tsdb.tempo").FromContext(ctx)
+	opts, err := settings.HTTPClientOptions(ctx)
+	if err != nil {
+		ctxLogger.Error("Failed to get HTTP client options", "error", err, "function", logEntrypoint())
+		return nil, backend.DownstreamErrorf("error reading settings: %w", err)
 	}
 
-	// Set up resource routes using httpadapter
-	mux := http.NewServeMux()
-	mux.HandleFunc("/tags", s.handleTags)
-	mux.HandleFunc("/tag-values", s.handleTagValues)
-	s.resourceHandler = httpadapter.New(mux)
+	opts.ForwardHTTPHeaders = true
 
-	return s
-}
+	client, err := httpclient.New(opts)
+	if err != nil {
+		ctxLogger.Error("Failed to create HTTP client", "error", err, "function", logEntrypoint())
+		return nil, err
+	}
 
-func newInstanceSettings(httpClientProvider *httpclient.Provider) datasource.InstanceFactoryFunc {
-	return func(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-		ctxLogger := backend.NewLoggerWith("logger", "tsdb.tempo").FromContext(ctx)
-		opts, err := settings.HTTPClientOptions(ctx)
-		if err != nil {
-			ctxLogger.Error("Failed to get HTTP client options", "error", err, "function", logEntrypoint())
-			return nil, backend.DownstreamErrorf("error reading settings: %w", err)
-		}
+	streamingClient, err := newGrpcClient(ctx, settings, opts)
+	if err != nil {
+		ctxLogger.Error("Failed to get gRPC client", "error", err, "function", logEntrypoint())
+		return nil, err
+	}
 
-		opts.ForwardHTTPHeaders = true
-
-		client, err := httpClientProvider.New(opts)
-		if err != nil {
-			ctxLogger.Error("Failed to get HTTP client provider", "error", err, "function", logEntrypoint())
-			return nil, err
-		}
-
-		streamingClient, err := newGrpcClient(ctx, settings, opts)
-		if err != nil {
-			ctxLogger.Error("Failed to get gRPC client", "error", err, "function", logEntrypoint())
-			return nil, err
-		}
-
-		model := &DatasourceInfo{
+	ds := &DataSource{
+		info: &DatasourceInfo{
 			HTTPClient:      client,
 			StreamingClient: streamingClient,
 			URL:             settings.URL,
-		}
-		return model, nil
+		},
+		logger: backend.NewLoggerWith("logger", "tsdb.tempo"),
+		tracer: tracing.DefaultTracer(),
 	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/tags", ds.handleTags)
+	mux.HandleFunc("/tag-values", ds.handleTagValues)
+	ds.resourceHandler = httpadapter.New(mux)
+
+	return ds, nil
 }
 
-func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	ctxLogger := s.logger.FromContext(ctx)
+func (ds *DataSource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+	ctxLogger := ds.logger.FromContext(ctx)
 	ctxLogger.Debug("Processing queries", "queryLength", len(req.Queries), "function", logEntrypoint())
 
 	// create response struct
@@ -109,7 +104,7 @@ func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) 
 
 		switch q.QueryType {
 		case string(dataquery.TempoQueryTypeTraceId):
-			res, err = s.getTrace(ctx, req.PluginContext, q)
+			res, err = ds.getTrace(ctx, req.PluginContext, q)
 			if err != nil {
 				ctxLogger.Error("Error processing TraceId query", "error", err)
 				response.Responses[q.RefID] = backend.ErrorResponseWithErrorSource(err)
@@ -119,7 +114,7 @@ func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) 
 		case string(dataquery.TempoQueryTypeTraceqlSearch):
 			fallthrough
 		case string(dataquery.TempoQueryTypeTraceql):
-			res, err = s.runTraceQlQuery(ctx, req.PluginContext, q)
+			res, err = ds.runTraceQlQuery(ctx, req.PluginContext, q)
 			if err != nil {
 				ctxLogger.Error("Error processing TraceQL query", "error", err)
 				response.Responses[q.RefID] = backend.ErrorResponseWithErrorSource(err)
@@ -142,30 +137,20 @@ func (s *Service) QueryData(ctx context.Context, req *backend.QueryDataRequest) 
 	return response, nil
 }
 
-func (s *Service) getDSInfo(ctx context.Context, pluginCtx backend.PluginContext) (*DatasourceInfo, error) {
-	i, err := s.im.Get(ctx, pluginCtx)
-	if err != nil {
-		return nil, err
-	}
-
-	instance, ok := i.(*DatasourceInfo)
-	if !ok {
-		return nil, fmt.Errorf("failed to cast datsource info")
-	}
-
-	return instance, nil
+func (ds *DataSource) getDSInfo(_ context.Context, _ backend.PluginContext) (*DatasourceInfo, error) {
+	return ds.info, nil
 }
 
-func (s *Service) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
-	return s.resourceHandler.CallResource(ctx, req, sender)
+func (ds *DataSource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
+	return ds.resourceHandler.CallResource(ctx, req, sender)
 }
 
-func (s *Service) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
+func (ds *DataSource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
 	var streamingEnabled bool
 	var jsonData map[string]interface{}
 
 	pluginCtx := backend.PluginConfigFromContext(ctx)
-	dsInfo, err := s.getDSInfo(ctx, pluginCtx)
+	dsInfo, err := ds.getDSInfo(ctx, pluginCtx)
 	if err != nil {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
@@ -249,7 +234,7 @@ func (s *Service) CheckHealth(ctx context.Context, req *backend.CheckHealthReque
 
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			s.logger.Warn("Failed to close response body", "error", err)
+			ds.logger.Warn("Failed to close response body", "error", err)
 		}
 	}()
 
@@ -267,12 +252,12 @@ func (s *Service) CheckHealth(ctx context.Context, req *backend.CheckHealthReque
 }
 
 // handleTags handles requests to /tags resource
-func (s *Service) handleTags(rw http.ResponseWriter, req *http.Request) {
-	s.proxyToTempo(rw, req, "api/v2/search/tags")
+func (ds *DataSource) handleTags(rw http.ResponseWriter, req *http.Request) {
+	ds.proxyToTempo(rw, req, "api/v2/search/tags")
 }
 
 // handleTagValues handles requests to /tag-values resource
-func (s *Service) handleTagValues(rw http.ResponseWriter, req *http.Request) {
+func (ds *DataSource) handleTagValues(rw http.ResponseWriter, req *http.Request) {
 	// Extract the encoded tag from query parameters
 	encodedTag := req.URL.Query().Get("tag")
 	if encodedTag == "" {
@@ -283,29 +268,29 @@ func (s *Service) handleTagValues(rw http.ResponseWriter, req *http.Request) {
 	// escape tag
 	tag, err := url.PathUnescape(encodedTag)
 	if err != nil {
-		s.logger.Error("Failed to unescape", "error", err, "tag", encodedTag)
+		ds.logger.Error("Failed to unescape", "error", err, "tag", encodedTag)
 		http.Error(rw, "Invalid 'tag' parameter", http.StatusBadRequest)
 		return
 	}
 
 	tempoPath := fmt.Sprintf("api/v2/search/tag/%s/values", tag)
-	s.proxyToTempo(rw, req, tempoPath)
+	ds.proxyToTempo(rw, req, tempoPath)
 }
 
 // proxyToTempo is the shared function that builds the URL and proxies requests to Tempo
-func (s *Service) proxyToTempo(rw http.ResponseWriter, req *http.Request, tempoPath string) {
+func (ds *DataSource) proxyToTempo(rw http.ResponseWriter, req *http.Request, tempoPath string) {
 	ctx := req.Context()
 	pCtx := backend.PluginConfigFromContext(ctx)
 
 	// Get datasource info
-	dsInfo, err := s.getDSInfo(ctx, pCtx)
+	dsInfo, err := ds.getDSInfo(ctx, pCtx)
 	if err != nil {
-		s.logger.Error("Failed to get data source info", "error", err)
+		ds.logger.Error("Failed to get data source info", "error", err)
 		http.Error(rw, "Failed to get data source configuration", http.StatusInternalServerError)
 		return
 	}
 
-	ctx, span := s.tracer.Start(ctx, "datasource.tempo.proxyToTempo", trace.WithAttributes(
+	ctx, span := ds.tracer.Start(ctx, "datasource.tempo.proxyToTempo", trace.WithAttributes(
 		attribute.String("tempoPath", tempoPath),
 	))
 	defer span.End()
@@ -315,7 +300,7 @@ func (s *Service) proxyToTempo(rw http.ResponseWriter, req *http.Request, tempoP
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		s.logger.Error("Failed to parse data source URL", "error", err, "url", dsInfo.URL)
+		ds.logger.Error("Failed to parse data source URL", "error", err, "url", dsInfo.URL)
 		http.Error(rw, "Invalid data source URL", http.StatusInternalServerError)
 		return
 	}
@@ -325,7 +310,7 @@ func (s *Service) proxyToTempo(rw http.ResponseWriter, req *http.Request, tempoP
 	// Preserve query parameters from the original request
 	parsedURL.RawQuery = req.URL.RawQuery
 
-	s.logger.Debug("Making resource request to Tempo", "url", parsedURL.String())
+	ds.logger.Debug("Making resource request to Tempo", "url", parsedURL.String())
 	start := time.Now()
 
 	// Create the request to Tempo
@@ -333,7 +318,7 @@ func (s *Service) proxyToTempo(rw http.ResponseWriter, req *http.Request, tempoP
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		s.logger.Error("Failed to create HTTP request", "error", err)
+		ds.logger.Error("Failed to create HTTP request", "error", err)
 		http.Error(rw, "Failed to create request", http.StatusInternalServerError)
 		return
 	}
@@ -350,17 +335,17 @@ func (s *Service) proxyToTempo(rw http.ResponseWriter, req *http.Request, tempoP
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		s.logger.Error("Failed resource call to Tempo", "error", err, "url", parsedURL.String(), "duration", time.Since(start))
+		ds.logger.Error("Failed resource call to Tempo", "error", err, "url", parsedURL.String(), "duration", time.Since(start))
 		http.Error(rw, "Failed to connect to Tempo", http.StatusBadGateway)
 		return
 	}
 	defer func() {
 		if err := resp.Body.Close(); err != nil {
-			s.logger.Warn("Failed to close response body", "error", err)
+			ds.logger.Warn("Failed to close response body", "error", err)
 		}
 	}()
 
-	s.logger.Debug("Response received from Tempo", "statusCode", resp.StatusCode, "contentLength", resp.Header.Get("Content-Length"), "duration", time.Since(start))
+	ds.logger.Debug("Response received from Tempo", "statusCode", resp.StatusCode, "contentLength", resp.Header.Get("Content-Length"), "duration", time.Since(start))
 
 	// Copy response headers
 	for name, values := range resp.Header {
@@ -377,7 +362,7 @@ func (s *Service) proxyToTempo(rw http.ResponseWriter, req *http.Request, tempoP
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		s.logger.Error("Failed to copy response body", "error", err)
+		ds.logger.Error("Failed to copy response body", "error", err)
 		return
 	}
 }

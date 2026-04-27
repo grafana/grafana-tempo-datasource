@@ -21,7 +21,7 @@ import {
 import { cloneQueryResponse, combineResponses } from '@grafana/o11y-ds-frontend';
 import { getGrafanaLiveSrv } from '@grafana/runtime';
 
-import { MetricsQueryType, SearchStreamingState } from './dataquery.gen';
+import { MetricsQueryType, SearchStreamingState } from './dataquery';
 import { DEFAULT_SPSS, type TempoDatasource } from './datasource';
 import { formatTraceQLResponse } from './resultTransformer';
 import { type SearchMetrics, type TempoJsonData, type TempoQuery } from './types';
