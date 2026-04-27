@@ -39,7 +39,7 @@ import { interpolateFilters } from './SearchTraceQLEditor/utils';
 import { type TempoVariableQuery, TempoVariableQueryType } from './VariableQueryEditor';
 import { type PrometheusDatasource, type PromQuery } from './_importedDependencies/datasources/prometheus/types';
 import { type TagLimitOptions } from './configuration/TagLimitSettings';
-import { SearchTableType, type TraceqlFilter, TraceqlSearchScope } from './dataquery.gen';
+import { SearchTableType, type TraceqlFilter, TraceqlSearchScope } from './dataquery';
 import {
   defaultTableFilter,
   durationMetric,

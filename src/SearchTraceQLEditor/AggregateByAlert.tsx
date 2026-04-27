@@ -2,7 +2,7 @@ import React from 'react';
 
 import { Alert, Button } from '@grafana/ui';
 
-import { type TempoQuery } from '../dataquery.gen';
+import { type TempoQuery } from '../dataquery';
 
 export function AggregateByAlert({
   query,

@@ -32,7 +32,7 @@ import { BarGaugeDisplayMode, type DataQuery, TableCellDisplayMode } from '@graf
 
 import { TempoVariableQueryType } from './VariableQueryEditor';
 import { createFetchResponse } from './_importedDependencies/test/helpers/createFetchResponse';
-import { TraceqlSearchScope } from './dataquery.gen';
+import { TraceqlSearchScope } from './dataquery';
 import {
   TempoDatasource,
   buildExpr,

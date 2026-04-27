@@ -2,7 +2,7 @@ import { type DataSourceApi, parseDuration } from '@grafana/data';
 import { getDataSourceSrv } from '@grafana/runtime';
 
 import { generateId } from './SearchTraceQLEditor/TagsInput';
-import { type TraceqlFilter, TraceqlSearchScope } from './dataquery.gen';
+import { type TraceqlFilter, TraceqlSearchScope } from './dataquery';
 import { type TempoQuery } from './types';
 
 const LIMIT_MESSAGE = /.*range specified by start and end.*exceeds.*/;

@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery.gen';
+import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery';
 import { type TempoDatasource } from '../datasource';
 import TempoLanguageProvider from '../language_provider';
 import { initTemplateSrv } from '../test/test_utils';

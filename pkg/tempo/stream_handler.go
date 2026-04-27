@@ -6,12 +6,12 @@ import (
 	"strings"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	stream_utils "github.com/grafana/grafana/pkg/tsdb/tempo/utils"
+	stream_utils "github.com/grafana/grafana-tempo-datasource/pkg/tempo/utils"
 	"google.golang.org/grpc/metadata"
 )
 
-func (s *Service) SubscribeStream(_ context.Context, req *backend.SubscribeStreamRequest) (*backend.SubscribeStreamResponse, error) {
-	s.logger.Debug("Allowing access to stream", "path", req.Path, "user", req.PluginContext.User)
+func (ds *DataSource) SubscribeStream(_ context.Context, req *backend.SubscribeStreamRequest) (*backend.SubscribeStreamResponse, error) {
+	ds.logger.Debug("Allowing access to stream", "path", req.Path, "user", req.PluginContext.User)
 
 	if strings.HasPrefix(req.Path, SearchPathPrefix) {
 		return &backend.SubscribeStreamResponse{
@@ -30,8 +30,8 @@ func (s *Service) SubscribeStream(_ context.Context, req *backend.SubscribeStrea
 	}, backend.DownstreamErrorf("stream path not supported: %s", req.Path)
 }
 
-func (s *Service) PublishStream(_ context.Context, _ *backend.PublishStreamRequest) (*backend.PublishStreamResponse, error) {
-	s.logger.Debug("PublishStream called")
+func (ds *DataSource) PublishStream(_ context.Context, _ *backend.PublishStreamRequest) (*backend.PublishStreamResponse, error) {
+	ds.logger.Debug("PublishStream called")
 
 	// Do not allow publishing at all.
 	return &backend.PublishStreamResponse{
@@ -39,15 +39,15 @@ func (s *Service) PublishStream(_ context.Context, _ *backend.PublishStreamReque
 	}, nil
 }
 
-func (s *Service) RunStream(ctx context.Context, request *backend.RunStreamRequest, sender *backend.StreamSender) error {
-	s.logger.Debug("New stream call", "path", request.Path)
-	tempoDatasource, dsInfoErr := s.getDSInfo(ctx, request.PluginContext)
+func (ds *DataSource) RunStream(ctx context.Context, request *backend.RunStreamRequest, sender *backend.StreamSender) error {
+	ds.logger.Debug("New stream call", "path", request.Path)
+	tempoDatasource, dsInfoErr := ds.getDSInfo(ctx, request.PluginContext)
 	if dsInfoErr != nil {
 		return backend.DownstreamErrorf("failed to get datasource information: %w", dsInfoErr)
 	}
 
 	// get incoming and team http headers and append to stream request.
-	headers, err := stream_utils.GetHeadersFromIncomingContext(ctx, s.logger)
+	headers, err := stream_utils.GetHeadersFromIncomingContext(ctx, ds.logger)
 	if err != nil {
 		return err
 	}
@@ -60,14 +60,14 @@ func (s *Service) RunStream(ctx context.Context, request *backend.RunStreamReque
 	}
 
 	if strings.HasPrefix(request.Path, SearchPathPrefix) {
-		if err = s.runSearchStream(ctx, request, sender, tempoDatasource); err != nil {
+		if err = ds.runSearchStream(ctx, request, sender, tempoDatasource); err != nil {
 			return sendError(err, sender)
 		} else {
 			return nil
 		}
 	}
 	if strings.HasPrefix(request.Path, MetricsPathPrefix) {
-		if err = s.runMetricsStream(ctx, request, sender, tempoDatasource); err != nil {
+		if err = ds.runMetricsStream(ctx, request, sender, tempoDatasource); err != nil {
 			return sendError(err, sender)
 		} else {
 			return nil

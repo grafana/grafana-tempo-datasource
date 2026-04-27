@@ -10,7 +10,7 @@ import {
   getUnscopedTags,
 } from './SearchTraceQLEditor/utils';
 import { DEFAULT_TIME_RANGE_FOR_TAGS } from './configuration/TagsTimeRangeSettings';
-import { type TraceqlFilter, TraceqlSearchScope } from './dataquery.gen';
+import { type TraceqlFilter, TraceqlSearchScope } from './dataquery';
 import { type TempoDatasource } from './datasource';
 import { enumIntrinsics, intrinsicsV1 } from './traceql/traceql';
 import { type Scope } from './types';

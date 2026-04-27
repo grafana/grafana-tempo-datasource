@@ -6,7 +6,7 @@ import { Alert } from '@grafana/ui';
 
 import TagsInput from '../SearchTraceQLEditor/TagsInput';
 import { replaceAt } from '../SearchTraceQLEditor/utils';
-import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery.gen';
+import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery';
 import { type TempoDatasource } from '../datasource';
 import { type TempoJsonData } from '../types';
 import { getErrorMessage } from '../utils';

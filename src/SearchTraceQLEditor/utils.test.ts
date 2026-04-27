@@ -1,6 +1,6 @@
 import { uniq } from 'lodash';
 
-import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery.gen';
+import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery';
 import { type TempoDatasource } from '../datasource';
 import TempoLanguageProvider from '../language_provider';
 import { intrinsics } from '../traceql/traceql';

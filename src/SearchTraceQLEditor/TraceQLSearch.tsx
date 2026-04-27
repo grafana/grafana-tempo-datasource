@@ -7,7 +7,7 @@ import { config, type FetchError, getTemplateSrv, reportInteraction } from '@gra
 import { Alert, Button, Stack, Select, useStyles2, TextLink } from '@grafana/ui';
 
 import { RawQuery } from '../_importedDependencies/datasources/prometheus/RawQuery';
-import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery.gen';
+import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery';
 import { type TempoDatasource } from '../datasource';
 import { TempoQueryBuilderOptions } from '../traceql/TempoQueryBuilderOptions';
 import { traceqlGrammar } from '../traceql/traceql';

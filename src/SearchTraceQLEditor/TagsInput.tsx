@@ -7,7 +7,7 @@ import { AccessoryButton } from '@grafana/plugin-ui';
 import { type FetchError } from '@grafana/runtime';
 import { useStyles2 } from '@grafana/ui';
 
-import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery.gen';
+import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery';
 import { type TempoDatasource } from '../datasource';
 
 import SearchField from './SearchField';

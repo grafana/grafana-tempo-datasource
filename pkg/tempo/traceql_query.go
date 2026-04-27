@@ -16,16 +16,16 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/tracing"
-	"github.com/grafana/grafana/pkg/tsdb/tempo/kinds/dataquery"
-	"github.com/grafana/grafana/pkg/tsdb/tempo/traceql"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/traceql"
 	"github.com/grafana/tempo/pkg/tempopb"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
-func (s *Service) runTraceQlQuery(ctx context.Context, pCtx backend.PluginContext, backendQuery backend.DataQuery) (*backend.DataResponse, error) {
-	ctxLogger := s.logger.FromContext(ctx)
+func (ds *DataSource) runTraceQlQuery(ctx context.Context, pCtx backend.PluginContext, backendQuery backend.DataQuery) (*backend.DataResponse, error) {
+	ctxLogger := ds.logger.FromContext(ctx)
 	ctxLogger.Debug("Running TraceQL query", "function", logEntrypoint())
 
 	tempoQuery := &dataquery.TempoQuery{}
@@ -40,18 +40,18 @@ func (s *Service) runTraceQlQuery(ctx context.Context, pCtx backend.PluginContex
 	}
 
 	if isMetricsQuery(*tempoQuery.Query) {
-		return s.runTraceQlQueryMetrics(ctx, pCtx, backendQuery, tempoQuery)
+		return ds.runTraceQlQueryMetrics(ctx, pCtx, backendQuery, tempoQuery)
 	}
 
-	return s.runTraceQlQuerySearch(ctx, pCtx, backendQuery)
+	return ds.runTraceQlQuerySearch(ctx, pCtx, backendQuery)
 }
 
-func (s *Service) runTraceQlQuerySearch(ctx context.Context, pCtx backend.PluginContext, query backend.DataQuery) (*backend.DataResponse, error) {
-	return s.Search(ctx, pCtx, query)
+func (ds *DataSource) runTraceQlQuerySearch(ctx context.Context, pCtx backend.PluginContext, query backend.DataQuery) (*backend.DataResponse, error) {
+	return ds.Search(ctx, pCtx, query)
 }
 
-func (s *Service) runTraceQlQueryMetrics(ctx context.Context, pCtx backend.PluginContext, backendQuery backend.DataQuery, tempoQuery *dataquery.TempoQuery) (*backend.DataResponse, error) {
-	ctxLogger := s.logger.FromContext(ctx)
+func (ds *DataSource) runTraceQlQueryMetrics(ctx context.Context, pCtx backend.PluginContext, backendQuery backend.DataQuery, tempoQuery *dataquery.TempoQuery) (*backend.DataResponse, error) {
+	ctxLogger := ds.logger.FromContext(ctx)
 	ctxLogger.Debug("Running TraceQL Metrics query", "function", logEntrypoint())
 
 	ctx, span := tracing.DefaultTracer().Start(ctx, "datasource.tempo.runTraceQLQuery", trace.WithAttributes(
@@ -61,7 +61,7 @@ func (s *Service) runTraceQlQueryMetrics(ctx context.Context, pCtx backend.Plugi
 
 	result := &backend.DataResponse{}
 
-	dsInfo, err := s.getDSInfo(ctx, pCtx)
+	dsInfo, err := ds.getDSInfo(ctx, pCtx)
 	if err != nil {
 		ctxLogger.Error("Failed to get datasource information", "error", err, "function", logEntrypoint())
 		return nil, backend.DownstreamErrorf("failed to get datasource information: %w", err)
@@ -73,7 +73,7 @@ func (s *Service) runTraceQlQueryMetrics(ctx context.Context, pCtx backend.Plugi
 		return result, backend.DownstreamErrorf("failed to validate model query: %w", err)
 	}
 
-	resp, responseBody, err := s.performMetricsQuery(ctx, dsInfo, tempoQuery, backendQuery, span)
+	resp, responseBody, err := ds.performMetricsQuery(ctx, dsInfo, tempoQuery, backendQuery, span)
 	defer func() {
 		if resp != nil && resp.Body != nil {
 			if err := resp.Body.Close(); err != nil {
@@ -140,9 +140,9 @@ func handleConversionError(ctxLogger log.Logger, span trace.Span, err error) (*b
 	return nil, nil
 }
 
-func (s *Service) performMetricsQuery(ctx context.Context, dsInfo *DatasourceInfo, model *dataquery.TempoQuery, query backend.DataQuery, span trace.Span) (*http.Response, []byte, error) {
-	ctxLogger := s.logger.FromContext(ctx)
-	request, err := s.createMetricsQuery(ctx, dsInfo, model, query.TimeRange.From.Unix(), query.TimeRange.To.Unix())
+func (ds *DataSource) performMetricsQuery(ctx context.Context, dsInfo *DatasourceInfo, model *dataquery.TempoQuery, query backend.DataQuery, span trace.Span) (*http.Response, []byte, error) {
+	ctxLogger := ds.logger.FromContext(ctx)
+	request, err := ds.createMetricsQuery(ctx, dsInfo, model, query.TimeRange.From.Unix(), query.TimeRange.To.Unix())
 	if err != nil {
 		ctxLogger.Error("Failed to create request", "error", err, "function", logEntrypoint())
 		span.RecordError(err)
@@ -169,8 +169,8 @@ func (s *Service) performMetricsQuery(ctx context.Context, dsInfo *DatasourceInf
 	return resp, body, nil
 }
 
-func (s *Service) createMetricsQuery(ctx context.Context, dsInfo *DatasourceInfo, query *dataquery.TempoQuery, start int64, end int64) (*http.Request, error) {
-	ctxLogger := s.logger.FromContext(ctx)
+func (ds *DataSource) createMetricsQuery(ctx context.Context, dsInfo *DatasourceInfo, query *dataquery.TempoQuery, start int64, end int64) (*http.Request, error) {
+	ctxLogger := ds.logger.FromContext(ctx)
 
 	queryType := "query_range"
 	if isInstantQuery(query.MetricsQueryType) {

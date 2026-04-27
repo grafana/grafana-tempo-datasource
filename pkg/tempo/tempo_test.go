@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
-	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -46,16 +44,14 @@ func TestCheckHealth(t *testing.T) {
 				},
 			}
 
-			im := datasource.NewInstanceManager(func(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
-				dsInfo := &DatasourceInfo{
+			service := &DataSource{
+				info: &DatasourceInfo{
 					URL:             server.URL,
 					HTTPClient:      server.Client(),
 					StreamingClient: nil,
-				}
-				return dsInfo, nil
-			})
-
-			service := &Service{im: im}
+				},
+				logger: backend.NewLoggerWith("logger", "tempo-test"),
+			}
 			ctx := backend.WithPluginContext(context.Background(), pluginCtx)
 			result, err := service.CheckHealth(ctx, &backend.CheckHealthRequest{})
 

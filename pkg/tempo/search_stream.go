@@ -10,7 +10,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/tracing"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/grafana/pkg/tsdb/tempo/kinds/dataquery"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	"github.com/grafana/tempo/pkg/tempopb"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -29,7 +29,7 @@ type StreamSender interface {
 	SendBytes(data []byte) error
 }
 
-func (s *Service) runSearchStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender, datasource *DatasourceInfo) error {
+func (ds *DataSource) runSearchStream(ctx context.Context, req *backend.RunStreamRequest, sender *backend.StreamSender, datasource *DatasourceInfo) error {
 	ctx, span := tracing.DefaultTracer().Start(ctx, "datasource.tempo.runSearchStream")
 	defer span.End()
 
@@ -64,17 +64,17 @@ func (s *Service) runSearchStream(ctx context.Context, req *backend.RunStreamReq
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		s.logger.Error("Error Search()", "err", err)
+		ds.logger.Error("Error Search()", "err", err)
 		if backend.IsDownstreamHTTPError(err) {
 			return backend.DownstreamError(err)
 		}
 		return err
 	}
 
-	return s.processStream(ctx, stream, sender)
+	return ds.processStream(ctx, stream, sender)
 }
 
-func (s *Service) processStream(ctx context.Context, stream tempopb.StreamingQuerier_SearchClient, sender StreamSender) error {
+func (ds *DataSource) processStream(ctx context.Context, stream tempopb.StreamingQuerier_SearchClient, sender StreamSender) error {
 	ctx, span := tracing.DefaultTracer().Start(ctx, "datasource.tempo.processStream")
 	defer span.End()
 	var traceList []*tempopb.TraceSearchMetadata
@@ -85,7 +85,7 @@ func (s *Service) processStream(ctx context.Context, stream tempopb.StreamingQue
 		messageCount++
 		span.SetAttributes(attribute.Int("message_count", messageCount))
 		if errors.Is(err, io.EOF) {
-			if err := s.sendSearchResponse(ctx, &ExtendedResponse{
+			if err := ds.sendSearchResponse(ctx, &ExtendedResponse{
 				State: dataquery.SearchStreamingStateDone,
 				SearchResponse: &tempopb.SearchResponse{
 					Metrics: metrics,
@@ -99,7 +99,7 @@ func (s *Service) processStream(ctx context.Context, stream tempopb.StreamingQue
 			break
 		}
 		if err != nil {
-			s.logger.Error("Error receiving message", "err", err)
+			ds.logger.Error("Error receiving message", "err", err)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return err
@@ -110,7 +110,7 @@ func (s *Service) processStream(ctx context.Context, stream tempopb.StreamingQue
 		traceList = removeDuplicates(traceList)
 		span.SetAttributes(attribute.Int("traces_count", len(traceList)))
 
-		if err := s.sendSearchResponse(ctx, &ExtendedResponse{
+		if err := ds.sendSearchResponse(ctx, &ExtendedResponse{
 			State: dataquery.SearchStreamingStateStreaming,
 			SearchResponse: &tempopb.SearchResponse{
 				Metrics: metrics,
@@ -126,20 +126,20 @@ func (s *Service) processStream(ctx context.Context, stream tempopb.StreamingQue
 	return nil
 }
 
-func (s *Service) sendSearchResponse(ctx context.Context, response *ExtendedResponse, sender StreamSender) error {
+func (ds *DataSource) sendSearchResponse(ctx context.Context, response *ExtendedResponse, sender StreamSender) error {
 	_, span := tracing.DefaultTracer().Start(ctx, "datasource.tempo.sendSearchResponse")
 	defer span.End()
 	frame := createResponseDataFrame()
 
 	if response != nil {
 		span.SetAttributes(attribute.Int("trace_count", len(response.Traces)), attribute.String("state", string(response.State)))
-		return s.sendResponse(ctx, response.Traces, response.Metrics, response.State, sender)
+		return ds.sendResponse(ctx, response.Traces, response.Metrics, response.State, sender)
 	}
 
 	return sender.SendFrame(frame, data.IncludeAll)
 }
 
-func (s *Service) sendResponse(ctx context.Context, result interface{}, metrics *tempopb.SearchMetrics, state dataquery.SearchStreamingState, sender StreamSender) error {
+func (ds *DataSource) sendResponse(ctx context.Context, result interface{}, metrics *tempopb.SearchMetrics, state dataquery.SearchStreamingState, sender StreamSender) error {
 	_, span := tracing.DefaultTracer().Start(ctx, "datasource.tempo.sendResponse")
 	defer span.End()
 	frame := createResponseDataFrame()

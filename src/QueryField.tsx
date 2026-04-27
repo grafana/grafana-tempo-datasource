@@ -18,7 +18,7 @@ import {
 
 import TraceQLSearch from './SearchTraceQLEditor/TraceQLSearch';
 import { ServiceGraphSection } from './ServiceGraphSection';
-import { type TempoQueryType } from './dataquery.gen';
+import { type TempoQueryType } from './dataquery';
 import { type TempoDatasource } from './datasource';
 import { QueryEditor } from './traceql/QueryEditor';
 import { type TempoQuery } from './types';

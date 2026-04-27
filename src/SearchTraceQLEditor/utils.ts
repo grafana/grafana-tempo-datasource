@@ -4,7 +4,7 @@ import { type ScopedVars, type SelectableValue } from '@grafana/data';
 import { getTemplateSrv } from '@grafana/runtime';
 import { VariableFormatID } from '@grafana/schema';
 
-import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery.gen';
+import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery';
 import { getEscapedRegexValues, getEscapedValues } from '../datasource';
 import type TempoLanguageProvider from '../language_provider';
 import { intrinsics } from '../traceql/traceql';

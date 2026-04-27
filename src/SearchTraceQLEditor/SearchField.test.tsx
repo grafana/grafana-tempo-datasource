@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 
 import { type LanguageProvider } from '@grafana/data';
 
-import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery.gen';
+import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery';
 import { type TempoDatasource } from '../datasource';
 import type TempoLanguageProvider from '../language_provider';
 import { initTemplateSrv } from '../test/test_utils';
