@@ -2,13 +2,12 @@ module github.com/grafana/grafana-tempo-datasource
 
 go 1.25.7
 
-replace github.com/grafana/grafana-tempo-datasource => /Users/ismailsimsek.grafana/Documents/workspace/plugins/grafana-tempo-datasource
-
 require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.4
 	github.com/grafana/grafana-plugin-sdk-go v0.292.0
 	github.com/grafana/tempo v1.5.1-0.20250529124718-87c2dc380cec
+	github.com/magefile/mage v1.17.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/stretchr/testify v1.11.1
 	go.opentelemetry.io/collector/pdata v1.55.0
@@ -49,7 +48,6 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
-	github.com/magefile/mage v1.17.1 // indirect
 	github.com/mattetti/filebuffer v1.0.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
