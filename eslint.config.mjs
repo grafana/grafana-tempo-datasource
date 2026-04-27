@@ -36,4 +36,11 @@ export default defineConfig([
     ],
   },
   ...baseConfig,
+  {
+    rules: {
+      'react/react-in-jsx-scope': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/refs': 'off',
+    },
+  },
 ]);
