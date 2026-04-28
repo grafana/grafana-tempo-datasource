@@ -58,8 +58,8 @@ npm run server
 ```
 
 The Tempo backend is reachable at `http://localhost:3200` (HTTP) and accepts OTLP traces on
-ports `4317` (gRPC) and `4318` (HTTP). The `fake-tempo-data` sidecar generates synthetic spans
-so the Service Graph and TraceQL search return non-empty results out of the box.
+ports `4317` (gRPC) and `4318` (HTTP). Push traces to it from any OTLP-compatible client
+(for example, the Grafana TNS demo apps) if you want non-empty Service Graph or TraceQL results.
 
 ## E2E tests
 

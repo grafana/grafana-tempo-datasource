@@ -8,14 +8,6 @@ services:
       - '4318:4318'
     volumes:
       - ./provisioning/tempo/tempo.yaml:/etc/tempo.yaml
-  fake-tempo-data:
-    image: grafana/fake-data-gen@sha256:467a6d8f7701e11ecedc774e728eb3369e4a295f923159a9889f5d7b7d8cefec
-    depends_on:
-      - tempo
-    network_mode: 'service:tempo'
-    environment:
-      FD_DATASOURCE: tempo
-      FD_PORT: 4318
   grafana:
     extends:
       file: .config/docker-compose-base.yaml
