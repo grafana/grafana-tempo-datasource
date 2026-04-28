@@ -6,6 +6,17 @@ server:
 
 distributor:
   receivers:
+    # Jaeger ingest for the TNS demo apps (db/app/loadgen).
+    jaeger:
+      protocols:
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+        grpc:
+          endpoint: 0.0.0.0:14250
+        thrift_binary:
+          endpoint: 0.0.0.0:6832
+        thrift_compact:
+          endpoint: 0.0.0.0:6831
     otlp:
       protocols:
         grpc:
@@ -31,15 +42,23 @@ storage:
       path: /tmp/tempo/wal
 
 metrics_generator:
+  traces_storage:
+    path: /tmp/tempo/generator/traces
   registry:
     external_labels:
       source: tempo
+      cluster: docker-compose
   storage:
     path: /tmp/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
 
 overrides:
   defaults:
     metrics_generator:
+      generate_native_histograms: both
       processors:
+        - local-blocks
         - service-graphs
         - span-metrics

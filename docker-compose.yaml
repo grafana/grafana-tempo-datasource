@@ -1,13 +1,78 @@
 services:
+  # TNS (The New Stack) demo apps generate real traces via the Jaeger SDK.
+  # They mirror grafana/grafana's devenv/docker/blocks/tempo setup so the plugin
+  # has trace data to query during development.
+  db:
+    image: grafana/tns-db:9c1ab38
+    command:
+      - '-log.level=debug'
+    ports:
+      - 8000:80
+    environment:
+      JAEGER_ENDPOINT: 'http://tempo:14268/api/traces'
+      JAEGER_TAGS: job=tns/db
+      JAEGER_SAMPLER_TYPE: const
+      JAEGER_SAMPLER_PARAM: 1
+    depends_on:
+      - tempo
+
+  app:
+    image: grafana/tns-app:9c1ab38
+    command:
+      - '-log.level=debug'
+      - 'http://db'
+    depends_on:
+      - db
+    ports:
+      - 8001:80
+    environment:
+      JAEGER_ENDPOINT: 'http://tempo:14268/api/traces'
+      JAEGER_TAGS: job=tns/app
+      JAEGER_SAMPLER_TYPE: const
+      JAEGER_SAMPLER_PARAM: 1
+
+  loadgen:
+    image: grafana/tns-loadgen:9c1ab38
+    command:
+      - '-log.level=debug'
+      - 'http://app'
+    depends_on:
+      - app
+    ports:
+      - 8002:80
+    environment:
+      JAEGER_ENDPOINT: 'http://tempo:14268/api/traces'
+      JAEGER_TAGS: job=tns/loadgen
+      JAEGER_SAMPLER_TYPE: const
+      JAEGER_SAMPLER_PARAM: 1
+
   tempo:
     image: grafana/tempo:latest
     command: -config.file=/etc/tempo.yaml
     ports:
-      - '3200:3200'
-      - '4317:4317'
-      - '4318:4318'
+      - '3200:3200'   # tempo HTTP
+      - '4317:4317'   # OTLP gRPC
+      - '4318:4318'   # OTLP HTTP
+      - '14268:14268' # jaeger HTTP ingest
     volumes:
       - ./provisioning/tempo/tempo.yaml:/etc/tempo.yaml
+
+  # Receives the metrics-generator's remote_write so the Service Graph and
+  # span-metrics views in the Tempo datasource have data to query.
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - --config.file=/etc/prometheus.yaml
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+      - --enable-feature=native-histograms
+    volumes:
+      - ./provisioning/prometheus/prometheus.yaml:/etc/prometheus.yaml
+    depends_on:
+      - tempo
+    ports:
+      - '9090:9090'
+
   grafana:
     extends:
       file: .config/docker-compose-base.yaml
