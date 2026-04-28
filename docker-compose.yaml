@@ -80,5 +80,10 @@ services:
     environment:
       # Grafana 13 enables splashScreen by default; the overlay blocks Playwright interactions.
       GF_FEATURE_TOGGLES_splashScreen: 'false'
+      # The unsigned-plugin allowlist matches against the plugin ID, not the directory name.
+      # plugin.json declares `"id": "tempo"`, and there is also a built-in core `tempo` plugin
+      # in Grafana — without this override Grafana silently rejects the externalized plugin
+      # ("Plugin source loaded, though no plugins were found") and falls back to the core one.
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: tempo
     volumes:
       - ./custom.ini:/etc/grafana/grafana.ini
