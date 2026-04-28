@@ -9,7 +9,7 @@ services:
     volumes:
       - ./provisioning/tempo/tempo.yaml:/etc/tempo.yaml
   fake-tempo-data:
-    image: grafana/fake-data-gen@sha256:467a6d8f7701e11ecedc774e728eb3369e4a295f923159a9889f5d7b7d8cefec
+    image: grafana/fake-data-gen@sha256:c2800b47a1e946b58350dfd1385088f10650b3810d6d4c7d8e4ec3bb65d9a5e1
     depends_on:
       - tempo
     network_mode: 'service:tempo'
