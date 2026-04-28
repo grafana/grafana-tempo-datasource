@@ -47,7 +47,14 @@ services:
       JAEGER_SAMPLER_PARAM: 1
 
   tempo:
-    image: grafana/tempo:latest
+    # Pinned: grafana/tempo:latest (currently 2.9.2) introduced breaking
+    # config-schema changes that reject this tempo.yaml (top-level `ingester`
+    # and `compactor`, plus `metrics_generator.traces_storage`). Without a pin
+    # the tempo container exits at startup, leaving Grafana unable to resolve
+    # the `tempo` hostname and the e2e Save & test health check fails with
+    # `dial tcp: lookup tempo on 127.0.0.11:53: no such host`. Match the pin
+    # used by grafana/grafana devenv/frontend-service/docker-compose.yaml.
+    image: grafana/tempo:2.9.0@sha256:65a5789759435f1ef696f1953258b9bbdb18eb571d5ce711ff812d2e128288a4
     command: -config.file=/etc/tempo.yaml
     ports:
       - '3200:3200'   # tempo HTTP
@@ -58,9 +65,12 @@ services:
       - ./provisioning/tempo/tempo.yaml:/etc/tempo.yaml
 
   # Receives the metrics-generator's remote_write so the Service Graph and
-  # span-metrics views in the Tempo datasource have data to query.
+  # span-metrics views in the Tempo datasource have data to query. Pinned for
+  # the same reason as the tempo image — `latest` can drift and break the e2e
+  # tests in CI. Match the pin used by grafana/grafana
+  # devenv/frontend-service/docker-compose.yaml.
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038
     command:
       - --config.file=/etc/prometheus.yaml
       - --web.enable-remote-write-receiver

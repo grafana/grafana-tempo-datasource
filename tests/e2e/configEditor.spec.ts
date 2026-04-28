@@ -44,12 +44,30 @@ test.describe('Config editor', () => {
   test(
     '"Save & test" should be successful when configuration is valid',
     { tag: '@plugins' },
-    async ({ createDataSourceConfigPage, readProvisionedDataSource, page }) => {
+    async ({ readProvisionedDataSource, gotoDataSourceConfigPage }) => {
+      // Run "Save & test" against the provisioned Tempo datasource (which has
+      // a real URL pointing at the docker-compose `tempo` service) rather than
+      // creating an ephemeral datasource and filling the URL field. The
+      // ephemeral path conflates a number of failures (Tempo pod down, DNS
+      // resolution failing, datasource form not yet rehydrated) into a single
+      // 400 with no signal; the provisioned path makes failures specific.
       const ds = await readProvisionedDataSource({ fileName: 'datasources.yml' });
-      const configPage = await createDataSourceConfigPage({ type: ds.type });
-      await expect(getConnectionHeading(page)).toBeVisible({ timeout: 30_000 });
-      await getDataSourceHttpUrlInput(page).fill(ds.url ?? 'http://tempo:3200');
+      const configPage = await gotoDataSourceConfigPage(ds.uid);
+
       await expect(configPage.saveAndTest()).toBeOK();
+      await expect(configPage).toHaveAlert('success');
     }
   );
+
+  test('should show error alert when Tempo is unreachable', async ({ createDataSourceConfigPage, page }) => {
+    const configPage = await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+
+    await expect(getConnectionHeading(page)).toBeVisible({ timeout: 30_000 });
+    // Point at a port nothing is listening on — the backend health check will
+    // surface a real connection error and Grafana wraps the non-OK status as
+    // HTTP 400.
+    await getDataSourceHttpUrlInput(page).fill('http://localhost:13200');
+    await configPage.saveAndTest();
+    await expect(configPage).toHaveAlert('error');
+  });
 });
