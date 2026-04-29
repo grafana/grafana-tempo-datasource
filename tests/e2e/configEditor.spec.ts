@@ -1,16 +1,26 @@
 import { expect, test } from '@grafana/plugin-e2e';
 import { type Locator, type Page } from '@playwright/test';
 
+import { type TempoJsonData } from '../../src/types';
+
 const PLUGIN_TYPE = 'tempo';
+const PROVISIONED_FILE = 'datasources.yml';
+
+// In CI/Cloud the data source URL is provisioned from Vault and exposed via
+// DS_INSTANCE_URL. Locally docker-compose names the backend `tempo` and the
+// provisioned datasources.yml uses http://tempo:3200.
+const DS_URL = process.env.DS_INSTANCE_URL || 'http://tempo:3200';
 
 // Grafana 12.4+ replaced the legacy `DataSourceHttpSettings` (with the "HTTP"
 // heading and `data-testid Datasource HTTP settings url` id) with the new
 // connection-config layout that exposes a `Data source connection URL` textbox
-// under a `Connection` heading. Match both styles so the test stays robust
-// across Grafana versions.
-function getDataSourceHttpUrlInput(page: Page): Locator {
+// under a `Connection` heading. Grafana 13 then migrated multiple UI surfaces
+// from aria-label to data-testid (grafana/grafana#121784). Match all shapes so
+// the test stays robust across versions.
+function getDataSourceConnectionUrlInput(page: Page): Locator {
   return page
-    .getByRole('textbox', { name: 'Data source connection URL' })
+    .getByTestId('data-testid Data source connection URL')
+    .or(page.getByRole('textbox', { name: 'Data source connection URL' }))
     .or(page.getByTestId('data-testid Datasource HTTP settings url'))
     .or(page.getByTestId('Datasource HTTP settings url'))
     .or(page.getByRole('textbox', { name: 'URL' }))
@@ -24,50 +34,140 @@ function getConnectionHeading(page: Page): Locator {
 }
 
 test.describe('Config editor', () => {
-  test(
-    'smoke: should render config editor',
-    { tag: '@plugins' },
-    async ({ createDataSourceConfigPage, page }) => {
+  test.describe('rendering', () => {
+    test(
+      'smoke: should render config editor',
+      { tag: '@plugins' },
+      async ({ createDataSourceConfigPage, page }) => {
+        await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+
+        await expect(page.getByText('Type: Tempo', { exact: true })).toBeVisible({ timeout: 30_000 });
+        await expect(getConnectionHeading(page)).toBeVisible();
+        await expect(getDataSourceConnectionUrlInput(page)).toBeVisible();
+        await expect(page.locator('#basic-settings-name')).toBeVisible();
+      }
+    );
+
+    test('should render Authentication section', async ({ createDataSourceConfigPage, page }) => {
       await createDataSourceConfigPage({ type: PLUGIN_TYPE });
 
-      await expect(getConnectionHeading(page)).toBeVisible({ timeout: 30_000 });
-      await expect(getDataSourceHttpUrlInput(page)).toBeVisible();
-      await expect(page.locator('#basic-settings-name')).toBeVisible();
-      // Tempo-specific sections that always render at the top level of the
-      // config editor (Service Graph / Span bar moved inside `Additional
-      // settings` and are collapsed by default in Grafana 12.4+).
-      await expect(page.getByRole('heading', { name: 'Streaming', exact: true })).toBeVisible();
-      await expect(page.getByRole('heading', { name: 'Trace to logs', exact: true })).toBeVisible();
-    }
-  );
+      const heading = page.getByRole('heading', { name: 'Authentication', exact: true });
+      await heading.scrollIntoViewIfNeeded();
+      await expect(heading).toBeVisible();
+      // Auth method combobox is rendered by @grafana/plugin-ui
+      await expect(page.getByRole('combobox', { name: 'Authentication method' })).toBeVisible();
+    });
 
-  test(
-    '"Save & test" should be successful when configuration is valid',
-    { tag: '@plugins' },
-    async ({ readProvisionedDataSource, gotoDataSourceConfigPage }) => {
-      // Run "Save & test" against the provisioned Tempo datasource (which has
-      // a real URL pointing at the docker-compose `tempo` service) rather than
-      // creating an ephemeral datasource and filling the URL field. The
-      // ephemeral path conflates a number of failures (Tempo pod down, DNS
-      // resolution failing, datasource form not yet rehydrated) into a single
-      // 400 with no signal; the provisioned path makes failures specific.
-      const ds = await readProvisionedDataSource({ fileName: 'datasources.yml' });
+    test('should render Streaming section', async ({ createDataSourceConfigPage, page }) => {
+      await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+
+      const heading = page.getByRole('heading', { name: 'Streaming', exact: true });
+      await heading.scrollIntoViewIfNeeded();
+      await expect(heading).toBeVisible();
+      // Tempo exposes two streaming toggles: Search queries and Metrics queries.
+      await expect(page.getByRole('switch', { name: 'Search queries' })).toBeVisible();
+      await expect(page.getByRole('switch', { name: 'Metrics queries' })).toBeVisible();
+    });
+
+    test('should render Trace to logs section', async ({ createDataSourceConfigPage, page }) => {
+      await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+
+      const heading = page.getByRole('heading', { name: 'Trace to logs', exact: true });
+      await heading.scrollIntoViewIfNeeded();
+      await expect(heading).toBeVisible();
+    });
+
+    test('should render Trace to metrics section', async ({ createDataSourceConfigPage, page }) => {
+      await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+
+      const heading = page.getByRole('heading', { name: 'Trace to metrics', exact: true });
+      await heading.scrollIntoViewIfNeeded();
+      await expect(heading).toBeVisible();
+    });
+
+    test('should render Trace to profiles section', async ({ createDataSourceConfigPage, page }) => {
+      await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+
+      const heading = page.getByRole('heading', { name: 'Trace to profiles', exact: true });
+      await heading.scrollIntoViewIfNeeded();
+      await expect(heading).toBeVisible();
+    });
+
+    test('should render Additional settings section', async ({ createDataSourceConfigPage, page }) => {
+      await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+
+      const heading = page.getByRole('heading', { name: 'Additional settings', exact: true });
+      await heading.scrollIntoViewIfNeeded();
+      await expect(heading).toBeVisible();
+    });
+  });
+
+  test.describe('provisioned datasource', () => {
+    test('should load provisioned URL', async ({ readProvisionedDataSource, gotoDataSourceConfigPage, page }) => {
+      const ds = await readProvisionedDataSource<TempoJsonData>({ fileName: PROVISIONED_FILE });
+      await gotoDataSourceConfigPage(ds.uid);
+
+      await getConnectionHeading(page).scrollIntoViewIfNeeded();
+      await expect(getDataSourceConnectionUrlInput(page)).toHaveValue(DS_URL);
+    });
+
+    test('should load provisioned Streaming settings', async ({
+      readProvisionedDataSource,
+      gotoDataSourceConfigPage,
+      page,
+    }) => {
+      const ds = await readProvisionedDataSource<TempoJsonData>({ fileName: PROVISIONED_FILE });
+      await gotoDataSourceConfigPage(ds.uid);
+
+      await page.getByRole('heading', { name: 'Streaming', exact: true }).scrollIntoViewIfNeeded();
+
+      // The provisioned datasource enables search streaming.
+      const expectedSearch = ds.jsonData?.streamingEnabled?.search === true;
+      const searchSwitch = page.getByRole('switch', { name: 'Search queries' });
+      if (expectedSearch) {
+        await expect(searchSwitch).toBeChecked();
+      } else {
+        await expect(searchSwitch).not.toBeChecked();
+      }
+    });
+  });
+
+  test.describe('save & test', () => {
+    test('should pass health check for provisioned datasource', async ({
+      readProvisionedDataSource,
+      gotoDataSourceConfigPage,
+      page,
+    }) => {
+      const ds = await readProvisionedDataSource({ fileName: PROVISIONED_FILE });
       const configPage = await gotoDataSourceConfigPage(ds.uid);
 
-      await expect(configPage.saveAndTest()).toBeOK();
+      // Match both `Save & test` (editable: true) and `Test` (editable: false).
+      // A bare role-based click is more robust than configPage.saveAndTest(),
+      // which times out for non-editable provisioned datasources.
+      await page.getByRole('button', { name: /^(Save & test|Test)$/ }).click();
       await expect(configPage).toHaveAlert('success');
-    }
-  );
+    });
 
-  test('should show error alert when Tempo is unreachable', async ({ createDataSourceConfigPage, page }) => {
-    const configPage = await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+    test('should show error alert when health check fails', async ({ createDataSourceConfigPage, page }) => {
+      const configPage = await createDataSourceConfigPage({ type: PLUGIN_TYPE });
 
-    await expect(getConnectionHeading(page)).toBeVisible({ timeout: 30_000 });
-    // Point at a port nothing is listening on — the backend health check will
-    // surface a real connection error and Grafana wraps the non-OK status as
-    // HTTP 400.
-    await getDataSourceHttpUrlInput(page).fill('http://localhost:13200');
-    await configPage.saveAndTest();
-    await expect(configPage).toHaveAlert('error');
+      await expect(getConnectionHeading(page)).toBeVisible({ timeout: 30_000 });
+      // `localhost` from inside the Grafana container never resolves to the
+      // Tempo service running in a sibling container.
+      await getDataSourceConnectionUrlInput(page).fill('http://localhost:3200');
+      await page.getByRole('button', { name: /^(Save & test|Test)$/ }).click();
+      await expect(configPage).toHaveAlert('error');
+    });
+
+    test('should show error alert when backend is unreachable', async ({ createDataSourceConfigPage, page }) => {
+      const configPage = await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+
+      await expect(getConnectionHeading(page)).toBeVisible({ timeout: 30_000 });
+      // Point at a port nothing is listening on (uses the Cloud host where present).
+      const url = DS_URL.replace(/:(\d+)$/, ':13200');
+      await getDataSourceConnectionUrlInput(page).fill(url);
+      await page.getByRole('button', { name: /^(Save & test|Test)$/ }).click();
+      await expect(configPage).toHaveAlert('error');
+    });
   });
 });
