@@ -85,20 +85,30 @@ const config = async (env: Env): Promise<Configuration> => {
           exclude: /(node_modules)/,
           test: /\.[tj]sx?$/,
           use: {
-            loader: 'swc-loader',
-            options: {
-              jsc: {
-                baseUrl: path.resolve(process.cwd(), SOURCE_DIR),
-                target: 'es2015',
-                loose: false,
-                parser: {
-                  syntax: 'typescript',
-                  tsx: true,
-                  decorators: false,
-                  dynamicImport: true,
+          loader: 'swc-loader',
+          options: {
+            jsc: {
+              baseUrl: path.resolve(process.cwd(), SOURCE_DIR),
+              target: 'es2015',
+              loose: false,
+              parser: {
+                syntax: 'typescript',
+                tsx: true,
+                decorators: false,
+                dynamicImport: true,
+              },
+              transform: {
+                react: {
+                  // Use the automatic JSX runtime so JSX compiles to imports
+                  // from `react/jsx-runtime` instead of bare `React.createElement`
+                  // calls. Grafana exposes React/jsx-runtime as AMD externals,
+                  // not as a `React` global, so the classic runtime fails at
+                  // load time with `ReferenceError: React is not defined`.
+                  runtime: 'automatic',
                 },
               },
             },
+          },
           },
         },
         {

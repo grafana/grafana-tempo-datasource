@@ -2,6 +2,7 @@ apiVersion: 1
 
 datasources:
   - name: 'Tempo'
+    uid: 'tempo'
     type: 'tempo'
     isDefault: true
     orgId: 1
@@ -14,6 +15,19 @@ datasources:
         spanStartTimeShift: '-1h'
         spanEndTimeShift: '1h'
       serviceMap:
-        datasourceUid: ''
+        datasourceUid: 'prometheus'
       streamingEnabled:
         search: true
+
+  - name: 'Prometheus'
+    uid: 'prometheus'
+    type: 'prometheus'
+    orgId: 1
+    version: 1
+    editable: true
+    url: 'http://prometheus:9090'
+    jsonData:
+      httpMethod: POST
+      exemplarTraceIdDestinations:
+        - name: 'traceID'
+          datasourceUid: 'tempo'
