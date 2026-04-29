@@ -1,21 +1,88 @@
 services:
-  tempo:
-    image: grafana/tempo:latest
-    command: -config.file=/etc/tempo.yaml
+  # TNS (The New Stack) demo apps generate real traces via the Jaeger SDK.
+  # They mirror grafana/grafana's devenv/docker/blocks/tempo setup so the plugin
+  # has trace data to query during development.
+  db:
+    image: grafana/tns-db:9c1ab38
+    command:
+      - '-log.level=debug'
     ports:
-      - '3200:3200'
-      - '4317:4317'
-      - '4318:4318'
-    volumes:
-      - ./provisioning/tempo/tempo.yaml:/etc/tempo.yaml
-  fake-tempo-data:
-    image: grafana/fake-data-gen@sha256:467a6d8f7701e11ecedc774e728eb3369e4a295f923159a9889f5d7b7d8cefec
+      - 8000:80
+    environment:
+      JAEGER_ENDPOINT: 'http://tempo:14268/api/traces'
+      JAEGER_TAGS: job=tns/db
+      JAEGER_SAMPLER_TYPE: const
+      JAEGER_SAMPLER_PARAM: 1
     depends_on:
       - tempo
-    network_mode: 'service:tempo'
+
+  app:
+    image: grafana/tns-app:9c1ab38
+    command:
+      - '-log.level=debug'
+      - 'http://db'
+    depends_on:
+      - db
+    ports:
+      - 8001:80
     environment:
-      FD_DATASOURCE: tempo
-      FD_PORT: 4318
+      JAEGER_ENDPOINT: 'http://tempo:14268/api/traces'
+      JAEGER_TAGS: job=tns/app
+      JAEGER_SAMPLER_TYPE: const
+      JAEGER_SAMPLER_PARAM: 1
+
+  loadgen:
+    image: grafana/tns-loadgen:9c1ab38
+    command:
+      - '-log.level=debug'
+      - 'http://app'
+    depends_on:
+      - app
+    ports:
+      - 8002:80
+    environment:
+      JAEGER_ENDPOINT: 'http://tempo:14268/api/traces'
+      JAEGER_TAGS: job=tns/loadgen
+      JAEGER_SAMPLER_TYPE: const
+      JAEGER_SAMPLER_PARAM: 1
+
+  tempo:
+    # Pinned: grafana/tempo:latest (currently 2.9.2) introduced breaking
+    # config-schema changes that reject this tempo.yaml (top-level `ingester`
+    # and `compactor`, plus `metrics_generator.traces_storage`). Without a pin
+    # the tempo container exits at startup, leaving Grafana unable to resolve
+    # the `tempo` hostname and the e2e Save & test health check fails with
+    # `dial tcp: lookup tempo on 127.0.0.11:53: no such host`. Match the pin
+    # used by grafana/grafana devenv/frontend-service/docker-compose.yaml.
+    image: grafana/tempo:2.9.0@sha256:65a5789759435f1ef696f1953258b9bbdb18eb571d5ce711ff812d2e128288a4
+    command: -config.file=/etc/tempo.yaml
+    ports:
+      - '3200:3200'   # tempo HTTP
+      - '4317:4317'   # OTLP gRPC
+      - '4318:4318'   # OTLP HTTP
+      - '14268:14268' # jaeger HTTP ingest
+    volumes:
+      - ./provisioning/tempo/tempo.yaml:/etc/tempo.yaml
+
+  # Receives the metrics-generator's remote_write so the Service Graph and
+  # span-metrics views in the Tempo datasource have data to query. Pinned for
+  # the same reason as the tempo image — `latest` can drift and break the e2e
+  # tests in CI. Match the pin used by grafana/grafana
+  # devenv/frontend-service/docker-compose.yaml.
+  prometheus:
+    image: prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038
+    command:
+      - --config.file=/etc/prometheus.yaml
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+      - --enable-feature=native-histograms
+    volumes:
+      - ./provisioning/prometheus/prometheus.yaml:/etc/prometheus.yaml
+    depends_on:
+      - tempo
+    ports:
+      - '9090:9090'
+
   grafana:
     extends:
       file: .config/docker-compose-base.yaml
@@ -23,5 +90,10 @@ services:
     environment:
       # Grafana 13 enables splashScreen by default; the overlay blocks Playwright interactions.
       GF_FEATURE_TOGGLES_splashScreen: 'false'
+      # The unsigned-plugin allowlist matches against the plugin ID, not the directory name.
+      # plugin.json declares `"id": "tempo"`, and there is also a built-in core `tempo` plugin
+      # in Grafana — without this override Grafana silently rejects the externalized plugin
+      # ("Plugin source loaded, though no plugins were found") and falls back to the core one.
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: tempo
     volumes:
       - ./custom.ini:/etc/grafana/grafana.ini

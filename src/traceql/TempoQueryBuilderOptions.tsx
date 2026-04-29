@@ -39,19 +39,14 @@ export const TempoQueryBuilderOptions = React.memo<Props>(
     const isAlerting = app === CoreApp.UnifiedAlerting;
     const isMetricsStreamingEnabled = metricsStreaming && !isAlerting;
 
-    if (!query.hasOwnProperty('limit')) {
-      query.limit = DEFAULT_LIMIT;
-    }
+    const resolvedQuery = {
+      limit: DEFAULT_LIMIT,
+      tableType: SearchTableType.Traces,
+      metricsQueryType: MetricsQueryType.Range,
+      ...query,
+    };
 
-    if (!query.hasOwnProperty('tableType')) {
-      query.tableType = SearchTableType.Traces;
-    }
-
-    if (!query.hasOwnProperty('metricsQueryType')) {
-      query.metricsQueryType = MetricsQueryType.Range;
-    }
-
-    if (isAlerting && query.metricsQueryType === MetricsQueryType.Range) {
+    if (isAlerting && resolvedQuery.metricsQueryType === MetricsQueryType.Range) {
       onChange({ ...query, metricsQueryType: MetricsQueryType.Instant });
     }
 
@@ -83,16 +78,16 @@ export const TempoQueryBuilderOptions = React.memo<Props>(
     // };
 
     const collapsedSearchOptions = [
-      `Limit: ${query.limit || DEFAULT_LIMIT}`,
+      `Limit: ${resolvedQuery.limit}`,
       `Spans Limit: ${query.spss || DEFAULT_SPSS}`,
-      `Table Format: ${query.tableType === SearchTableType.Traces ? 'Traces' : 'Spans'}`,
+      `Table Format: ${resolvedQuery.tableType === SearchTableType.Traces ? 'Traces' : 'Spans'}`,
       '|',
       `Streaming: ${searchStreaming ? 'Enabled' : 'Disabled'}`,
     ];
 
     const collapsedMetricsOptions = [
       `Step: ${query.step || 'auto'}`,
-      `Type: ${query.metricsQueryType === MetricsQueryType.Range ? 'Range' : 'Instant'}`,
+      `Type: ${resolvedQuery.metricsQueryType === MetricsQueryType.Range ? 'Range' : 'Instant'}`,
       '|',
       `Streaming: ${isMetricsStreamingEnabled ? 'Enabled' : 'Disabled'}`,
       // `Exemplars: ${query.exemplars !== undefined ? query.exemplars : 'auto'}`,
@@ -114,9 +109,9 @@ export const TempoQueryBuilderOptions = React.memo<Props>(
                   placeholder="auto"
                   type="number"
                   min={1}
-                  defaultValue={query.limit || DEFAULT_LIMIT}
+                  defaultValue={resolvedQuery.limit}
                   onCommitChange={onLimitChange}
-                  value={query.limit}
+                  value={resolvedQuery.limit}
                 />
               </EditorField>
               <EditorField label="Span Limit" tooltip="Maximum number of spans to return for each span set.">
@@ -136,7 +131,7 @@ export const TempoQueryBuilderOptions = React.memo<Props>(
                     { label: 'Traces', value: SearchTableType.Traces },
                     { label: 'Spans', value: SearchTableType.Spans },
                   ]}
-                  value={query.tableType}
+                  value={resolvedQuery.tableType}
                   onChange={onTableTypeChange}
                 />
               </EditorField>
@@ -173,7 +168,7 @@ export const TempoQueryBuilderOptions = React.memo<Props>(
                   { label: 'Range', value: MetricsQueryType.Range },
                   { label: 'Instant', value: MetricsQueryType.Instant },
                 ]}
-                value={query.metricsQueryType}
+                value={resolvedQuery.metricsQueryType}
                 onChange={onMetricsQueryTypeChange}
                 disabled={isAlerting}
               />
