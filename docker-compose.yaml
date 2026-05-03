@@ -70,7 +70,7 @@ services:
   # tests in CI. Match the pin used by grafana/grafana
   # devenv/frontend-service/docker-compose.yaml.
   prometheus:
-    image: prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038
+    image: prom/prometheus:v3.11.3@sha256:e4254400b85610324913f0dc4acf92603d9984e7519414c5a12811aa6146acc3
     command:
       - --config.file=/etc/prometheus.yaml
       - --web.enable-remote-write-receiver
