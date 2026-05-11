@@ -331,7 +331,7 @@ func (ds *DataSource) proxyToTempo(rw http.ResponseWriter, req *http.Request, te
 	}
 
 	// Make the request to Tempo
-	resp, err := dsInfo.HTTPClient.Do(httpReq)
+	resp, err := dsInfo.HTTPClient.Do(httpReq) // #nosec G704 -- datasource client targets operator-configured URL
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
