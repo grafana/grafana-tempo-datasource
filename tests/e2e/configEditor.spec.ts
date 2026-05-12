@@ -50,6 +50,7 @@ test.describe('Config editor', () => {
             .getByText('Type: Tempo', { exact: true })
             .or(page.getByText(/^Type\s*Tempo$/))
             .or(getConnectionHeading(page))
+            .first()
         ).toBeVisible({ timeout: 30_000 });
         await expect(getConnectionHeading(page)).toBeVisible();
         await expect(getDataSourceConnectionUrlInput(page)).toBeVisible();
