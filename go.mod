@@ -1,6 +1,6 @@
 module github.com/grafana/grafana-tempo-datasource
 
-go 1.25.7
+go 1.26.3
 
 require (
 	github.com/gogo/protobuf v1.3.2
