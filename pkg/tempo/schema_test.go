@@ -32,6 +32,21 @@ func TestSpansFixedColumnsSupportsValues(t *testing.T) {
 	}
 }
 
+func TestSpansFixedColumnsOperators(t *testing.T) {
+	cols := spansFixedColumns()
+	byName := make(map[string]schemas.Column, len(cols))
+	for _, c := range cols {
+		byName[c.Name] = c
+	}
+
+	require.Empty(t, byName[tempoSpanColTime].Operators, "time is display-only; TraceQL has no span start-time intrinsic")
+
+	require.Equal(t, traceqlIdentifierColumnOperators(), byName[tempoSpanColTraceIDHidden].Operators)
+	require.Equal(t, traceqlIdentifierColumnOperators(), byName[tempoSpanColSpanID].Operators)
+	require.Equal(t, traceqlStringColumnOperators(), byName[tempoSpanColName].Operators)
+	require.Equal(t, traceqlDurationColumnOperators(), byName[tempoSpanColDuration].Operators)
+}
+
 func TestMergeSpansColumnsUnique_DropsDynamicWhenNameMatchesFixed(t *testing.T) {
 	fixed := []schemas.Column{{Name: "name"}, {Name: "duration"}}
 	dynamic := []schemas.Column{

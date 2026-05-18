@@ -23,12 +23,35 @@ const (
 	tempoSpanColDuration      = "duration"
 )
 
+// traceqlStringColumnOperators matches TraceQL attribute filters (=, !=, in, like/regex).
+// See https://grafana.com/docs/tempo/latest/traceql/construct-traceql-queries/
 func traceqlStringColumnOperators() []schemas.Operator {
 	return []schemas.Operator{
 		schemas.OperatorEquals,
 		schemas.OperatorNotEquals,
 		schemas.OperatorIn,
 		schemas.OperatorLike,
+	}
+}
+
+// traceqlIdentifierColumnOperators is for trace:id and span:id (exact / multi-value match).
+func traceqlIdentifierColumnOperators() []schemas.Operator {
+	return []schemas.Operator{
+		schemas.OperatorEquals,
+		schemas.OperatorNotEquals,
+		schemas.OperatorIn,
+	}
+}
+
+// traceqlDurationColumnOperators matches TraceQL duration intrinsics (span:duration, duration).
+func traceqlDurationColumnOperators() []schemas.Operator {
+	return []schemas.Operator{
+		schemas.OperatorEquals,
+		schemas.OperatorNotEquals,
+		schemas.OperatorGreaterThan,
+		schemas.OperatorGreaterThanOrEqual,
+		schemas.OperatorLessThan,
+		schemas.OperatorLessThanOrEqual,
 	}
 }
 
@@ -59,28 +82,38 @@ func spansFixedColumns() []schemas.Column {
 	falsePtr := schemaBoolPtr(false)
 	truePtr := schemaBoolPtr(true)
 	traceqlStringOps := traceqlStringColumnOperators()
-	timeOps := []schemas.Operator{
-		schemas.OperatorGreaterThan,
-		schemas.OperatorGreaterThanOrEqual,
-		schemas.OperatorLessThan,
-		schemas.OperatorLessThanOrEqual,
-	}
-	durOps := []schemas.Operator{
-		schemas.OperatorEquals,
-		schemas.OperatorNotEquals,
-		schemas.OperatorGreaterThan,
-		schemas.OperatorGreaterThanOrEqual,
-		schemas.OperatorLessThan,
-		schemas.OperatorLessThanOrEqual,
-	}
+	traceqlIDOps := traceqlIdentifierColumnOperators()
+	traceqlDurOps := traceqlDurationColumnOperators()
 	return []schemas.Column{
-		{Name: tempoSpanColTraceIDHidden, Type: schemas.ColumnTypeString, Operators: traceqlStringOps, Description: "Trace ID (used for drill-down links).", SupportsValues: falsePtr},
-		{Name: tempoSpanColTraceService, Type: schemas.ColumnTypeString, Operators: traceqlStringOps, Description: "Root trace service name.", SupportsValues: falsePtr},
-		{Name: tempoSpanColTraceName, Type: schemas.ColumnTypeString, Operators: traceqlStringOps, Description: "Root trace name.", SupportsValues: falsePtr},
-		{Name: tempoSpanColSpanID, Type: schemas.ColumnTypeString, Operators: traceqlStringOps, Description: "Span ID.", SupportsValues: falsePtr},
-		{Name: tempoSpanColTime, Type: schemas.ColumnTypeDatetime, Operators: timeOps, Description: "Span start time.", SupportsValues: falsePtr},
-		{Name: tempoSpanColName, Type: schemas.ColumnTypeString, Operators: traceqlStringOps, Description: "Span name.", SupportsValues: truePtr},
-		{Name: tempoSpanColDuration, Type: schemas.ColumnTypeFloat64, Operators: durOps, Description: "Span duration in nanoseconds.", SupportsValues: truePtr},
+		{
+			Name: tempoSpanColTraceIDHidden, Type: schemas.ColumnTypeString, Operators: traceqlIDOps,
+			Description: "Trace ID (TraceQL: trace:id). Used for drill-down links.", SupportsValues: falsePtr,
+		},
+		{
+			Name: tempoSpanColTraceService, Type: schemas.ColumnTypeString, Operators: traceqlStringOps,
+			Description: "Root trace service (TraceQL: trace:rootService / rootServiceName).", SupportsValues: falsePtr,
+		},
+		{
+			Name: tempoSpanColTraceName, Type: schemas.ColumnTypeString, Operators: traceqlStringOps,
+			Description: "Root trace name (TraceQL: trace:rootName / rootName).", SupportsValues: falsePtr,
+		},
+		{
+			Name: tempoSpanColSpanID, Type: schemas.ColumnTypeString, Operators: traceqlIDOps,
+			Description: "Span ID (TraceQL: span:id).", SupportsValues: falsePtr,
+		},
+		{
+			// Span start time is not a TraceQL filter intrinsic; bound queries with the panel time range.
+			Name: tempoSpanColTime, Type: schemas.ColumnTypeDatetime, Operators: nil,
+			Description: "Span start time (display only). Not filterable in TraceQL; use the query time range.", SupportsValues: falsePtr,
+		},
+		{
+			Name: tempoSpanColName, Type: schemas.ColumnTypeString, Operators: traceqlStringOps,
+			Description: "Span name (TraceQL: name / span:name).", SupportsValues: truePtr,
+		},
+		{
+			Name: tempoSpanColDuration, Type: schemas.ColumnTypeFloat64, Operators: traceqlDurOps,
+			Description: "Span duration (TraceQL: duration / span:duration). Comparisons use duration units in the query (for example 100ms).", SupportsValues: truePtr,
+		},
 	}
 }
 
