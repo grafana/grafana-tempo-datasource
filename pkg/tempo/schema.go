@@ -2,27 +2,17 @@ package tempo
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"path"
 	"sort"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
-	apidata "github.com/grafana/grafana-plugin-sdk-go/experimental/apis/datasource/v0alpha1"
 	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	schemas "github.com/grafana/schemads"
 )
 
 const (
 	tempoSchemadsTableSpans = "spans"
-	defaultSearchTagsLimit  = 5000
 
 	tempoSpanColTraceIDHidden = "traceIdHidden"
 	tempoSpanColTraceService  = "traceService"
@@ -31,18 +21,6 @@ const (
 	tempoSpanColTime          = "time"
 	tempoSpanColName          = "name"
 	tempoSpanColDuration      = "duration"
-
-	tempoMIMETypeJSON              = "application/json"
-	tempoHTTPPathV2SearchTags      = "api/v2/search/tags"
-	tempoHTTPPathV2SearchTagPrefix = "api/v2/search/tag"
-	tempoHTTPPathTagValuesSuffix   = "values"
-
-	tempoQueryParamLimit = "limit"
-	tempoQueryParamStart = "start"
-	tempoQueryParamEnd   = "end"
-
-	tempoUnixMillisThreshold         = 1_000_000_000_000
-	tempoDefaultTagValuesLookbackSec = 3600
 )
 
 func traceqlStringColumnOperators() []schemas.Operator {
@@ -232,7 +210,7 @@ func (p *tempoSchemaProvider) ColumnValues(ctx context.Context, req *schemas.Col
 		}, nil
 	}
 
-	scopes, err := fetchTempoSearchTagScopes(ctx, dsInfo, defaultSearchTagsLimit)
+	scopes, err := p.ds.fetchSearchTagScopes(ctx, dsInfo, defaultSearchTagsLimit)
 	if err != nil {
 		return &schemas.ColumnValuesResponse{
 			ColumnValues: out,
@@ -250,7 +228,7 @@ func (p *tempoSchemaProvider) ColumnValues(ctx context.Context, req *schemas.Col
 		if _, ok := tagCols[col]; !ok {
 			continue
 		}
-		vals, err := fetchTempoTagValuesForColumn(ctx, dsInfo, col, req.TimeRange)
+		vals, err := p.ds.fetchTagValuesForColumn(ctx, dsInfo, col, req.TimeRange)
 		if err != nil {
 			p.logger.Warn("tempo schemads: tag values", "column", col, "error", err)
 			errs[col] = err.Error()
@@ -298,7 +276,7 @@ func globalColumnValuesErrors(columns []string, msg string) map[string]string {
 }
 
 func (p *tempoSchemaProvider) dynamicTagColumns(ctx context.Context, dsInfo *DatasourceInfo) ([]schemas.Column, error) {
-	scopes, err := fetchTempoSearchTagScopes(ctx, dsInfo, defaultSearchTagsLimit)
+	scopes, err := p.ds.fetchSearchTagScopes(ctx, dsInfo, defaultSearchTagsLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -319,147 +297,6 @@ func (p *tempoSchemaProvider) dynamicTagColumns(ctx context.Context, dsInfo *Dat
 		})
 	}
 	return cols, nil
-}
-
-type tempoSearchTagsV2Response struct {
-	Scopes []tempoSearchTagScope `json:"scopes"`
-}
-
-type tempoSearchTagScope struct {
-	Name string   `json:"name"`
-	Tags []string `json:"tags"`
-}
-
-func fetchTempoSearchTagScopes(ctx context.Context, dsInfo *DatasourceInfo, limit int) ([]tempoSearchTagScope, error) {
-	parsed, err := url.Parse(dsInfo.URL)
-	if err != nil {
-		return nil, fmt.Errorf("parse datasource url: %w", err)
-	}
-	parsed.Path = path.Join(parsed.Path, tempoHTTPPathV2SearchTags)
-	q := parsed.Query()
-	q.Set(tempoQueryParamLimit, strconv.Itoa(limit))
-	parsed.RawQuery = q.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", tempoMIMETypeJSON)
-
-	resp, err := dsInfo.HTTPClient.Do(req) // #nosec G107 -- URL comes from operator-configured datasource
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("tempo tags request: %s: %s", resp.Status, string(body))
-	}
-
-	var parsedBody tempoSearchTagsV2Response
-	if err := json.Unmarshal(body, &parsedBody); err != nil {
-		return nil, fmt.Errorf("decode tags response: %w", err)
-	}
-	return parsedBody.Scopes, nil
-}
-
-type tempoTagValuesResponse struct {
-	TagValues []struct {
-		Type  string `json:"type"`
-		Value string `json:"value"`
-	} `json:"tagValues"`
-}
-
-func fetchTempoTagValuesForColumn(ctx context.Context, dsInfo *DatasourceInfo, tag string, tr apidata.TimeRange) ([]string, error) {
-	u, err := url.Parse(dsInfo.URL)
-	if err != nil {
-		return nil, fmt.Errorf("parse datasource url: %w", err)
-	}
-	u.Path = path.Join(u.Path, tempoHTTPPathV2SearchTagPrefix, url.PathEscape(tag), tempoHTTPPathTagValuesSuffix)
-	q := u.Query()
-	q.Set(tempoQueryParamLimit, strconv.Itoa(defaultSearchTagsLimit))
-	start, end := timeRangeToUnixForTempoTagAPI(tr)
-	q.Set(tempoQueryParamStart, strconv.FormatInt(start, 10))
-	q.Set(tempoQueryParamEnd, strconv.FormatInt(end, 10))
-	u.RawQuery = q.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", tempoMIMETypeJSON)
-
-	resp, err := dsInfo.HTTPClient.Do(req) // #nosec G107 -- URL comes from operator-configured datasource
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("tempo tag values: %s: %s", resp.Status, string(body))
-	}
-
-	var parsed tempoTagValuesResponse
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("decode tag values: %w", err)
-	}
-	seen := make(map[string]struct{})
-	for _, tv := range parsed.TagValues {
-		if tv.Value == "" {
-			continue
-		}
-		seen[tv.Value] = struct{}{}
-	}
-	vals := make([]string, 0, len(seen))
-	for v := range seen {
-		vals = append(vals, v)
-	}
-	sort.Strings(vals)
-	return vals, nil
-}
-
-func timeRangeToUnixForTempoTagAPI(tr apidata.TimeRange) (start, end int64) {
-	fromS := strings.TrimSpace(tr.From)
-	toS := strings.TrimSpace(tr.To)
-	if fromS == "" || toS == "" {
-		now := time.Now().Unix()
-		return now - tempoDefaultTagValuesLookbackSec, now
-	}
-	fromT, err1 := parseFlexibleTimeForTagValues(fromS)
-	toT, err2 := parseFlexibleTimeForTagValues(toS)
-	if err1 != nil || err2 != nil {
-		now := time.Now().Unix()
-		return now - tempoDefaultTagValuesLookbackSec, now
-	}
-	return fromT.Unix(), toT.Unix()
-}
-
-func parseFlexibleTimeForTagValues(s string) (time.Time, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return time.Time{}, fmt.Errorf("empty time string")
-	}
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t, nil
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t, nil
-	}
-	if ms, err := strconv.ParseInt(s, 10, 64); err == nil {
-		if ms > tempoUnixMillisThreshold {
-			return time.UnixMilli(ms), nil
-		}
-		return time.Unix(ms, 0), nil
-	}
-	return time.Time{}, fmt.Errorf("unsupported time format: %q", s)
 }
 
 func tagColumnNamesSetFromScopes(scopes []tempoSearchTagScope) map[string]struct{} {

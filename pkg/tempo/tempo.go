@@ -277,7 +277,7 @@ func (ds *DataSource) CheckHealth(ctx context.Context, req *backend.CheckHealthR
 
 // handleTags handles requests to /tags resource
 func (ds *DataSource) handleTags(rw http.ResponseWriter, req *http.Request) {
-	ds.proxyToTempo(rw, req, "api/v2/search/tags")
+	ds.proxyToTempo(rw, req, tempoPathV2SearchTags)
 }
 
 // handleTagValues handles requests to /tag-values resource
@@ -297,8 +297,7 @@ func (ds *DataSource) handleTagValues(rw http.ResponseWriter, req *http.Request)
 		return
 	}
 
-	tempoPath := fmt.Sprintf("api/v2/search/tag/%s/values", tag)
-	ds.proxyToTempo(rw, req, tempoPath)
+	ds.proxyToTempo(rw, req, tempoTagValuesPath(tag))
 }
 
 // proxyToTempo is the shared function that builds the URL and proxies requests to Tempo
@@ -319,8 +318,7 @@ func (ds *DataSource) proxyToTempo(rw http.ResponseWriter, req *http.Request, te
 	))
 	defer span.End()
 
-	// Build the full URL to Tempo
-	parsedURL, err := url.Parse(dsInfo.URL)
+	parsedURL, err := buildTempoURL(dsInfo.URL, tempoPath, nil)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -328,9 +326,6 @@ func (ds *DataSource) proxyToTempo(rw http.ResponseWriter, req *http.Request, te
 		http.Error(rw, "Invalid data source URL", http.StatusInternalServerError)
 		return
 	}
-
-	// Join the tempo path with the base URL
-	parsedURL.Path = path.Join(parsedURL.Path, tempoPath)
 	// Preserve query parameters from the original request
 	parsedURL.RawQuery = req.URL.RawQuery
 
