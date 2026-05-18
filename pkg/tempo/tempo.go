@@ -24,6 +24,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/tracing"
 	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
+	schemas "github.com/grafana/schemads"
 	"github.com/grafana/tempo/pkg/tempopb"
 )
 
@@ -83,7 +84,16 @@ func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSetti
 	mux := http.NewServeMux()
 	mux.HandleFunc("/tags", ds.handleTags)
 	mux.HandleFunc("/tag-values", ds.handleTagValues)
-	ds.resourceHandler = httpadapter.New(mux)
+	muxHandler := httpadapter.New(mux)
+	schemaProvider := newTempoSchemaProvider(ds, ds.logger)
+	ds.resourceHandler = schemas.NewSchemaDatasource(
+		schemaProvider,
+		schemaProvider,
+		schemaProvider,
+		nil,
+		schemaProvider,
+		muxHandler,
+	)
 
 	return ds, nil
 }
@@ -91,6 +101,8 @@ func NewDatasource(ctx context.Context, settings backend.DataSourceInstanceSetti
 func (ds *DataSource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
 	ctxLogger := ds.logger.FromContext(ctx)
 	ctxLogger.Debug("Processing queries", "queryLength", len(req.Queries), "function", logEntrypoint())
+
+	req, sqlErrs := ds.normalizeGrafanaSQLRequest(ctx, req)
 
 	// create response struct
 	response := backend.NewQueryDataResponse()
@@ -130,6 +142,18 @@ func (ds *DataSource) QueryData(ctx context.Context, req *backend.QueryDataReque
 			response.Responses[q.RefID] = *res
 		} else {
 			ctxLogger.Debug("Query resulted in empty response", "counter", i, "function", logEntrypoint())
+		}
+	}
+
+	if len(sqlErrs) > 0 {
+		if response.Responses == nil {
+			response.Responses = make(map[string]backend.DataResponse, len(sqlErrs))
+		}
+		for refID, e := range sqlErrs {
+			response.Responses[refID] = backend.DataResponse{
+				Error:       e,
+				ErrorSource: backend.ErrorSourceDownstream,
+			}
 		}
 	}
 

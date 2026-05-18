@@ -1,0 +1,235 @@
+package tempo
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-plugin-sdk-go/config"
+	"github.com/grafana/grafana-plugin-sdk-go/experimental/featuretoggles"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
+	"github.com/stretchr/testify/require"
+
+	schemas "github.com/grafana/schemads"
+)
+
+func TestNormalizeGrafanaSQLRequest_DisabledToggle(t *testing.T) {
+	ds := &DataSource{}
+	req := &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{
+			GrafanaConfig: config.NewGrafanaCfg(map[string]string{
+				featuretoggles.EnabledFeatures: "",
+			}),
+		},
+		Queries: []backend.DataQuery{{
+			RefID: "A",
+			JSON:  []byte(`{"grafanaSql":true,"table":"spans"}`),
+		}},
+	}
+	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	require.Nil(t, errs)
+	require.Equal(t, req, out)
+}
+
+func TestNormalizeGrafanaSQLRequest_NotGrafanaSqlPassthrough(t *testing.T) {
+	ds := &DataSource{}
+	orig := []byte(`{"refId":"A","queryType":"traceqlSearch","query":"{}"}`)
+	req := &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{
+			GrafanaConfig: config.NewGrafanaCfg(map[string]string{
+				featuretoggles.EnabledFeatures: "dsAbstractionApp",
+			}),
+		},
+		Queries: []backend.DataQuery{{
+			RefID:     "A",
+			QueryType: string(dataquery.TempoQueryTypeTraceqlSearch),
+			JSON:      orig,
+		}},
+	}
+	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	require.Nil(t, errs)
+	require.Len(t, out.Queries, 1)
+	require.JSONEq(t, string(orig), string(out.Queries[0].JSON))
+}
+
+func TestNormalizeGrafanaSQLRequest_ConvertsSpansQuery(t *testing.T) {
+	ds := &DataSource{}
+	sq := schemas.Query{
+		Table:      tempoSchemadsTableSpans,
+		GrafanaSql: true,
+		Filters: []schemas.ColumnFilter{
+			{
+				Name: "resource.service.name",
+				Conditions: []schemas.FilterCondition{{
+					Operator: schemas.OperatorEquals,
+					Value:    "api",
+				}},
+			},
+		},
+	}
+	raw, err := json.Marshal(sq)
+	require.NoError(t, err)
+
+	req := &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{
+			GrafanaConfig: config.NewGrafanaCfg(map[string]string{
+				featuretoggles.EnabledFeatures: "dsAbstractionApp",
+			}),
+		},
+		Queries: []backend.DataQuery{{RefID: "A", JSON: raw}},
+	}
+
+	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	require.Nil(t, errs)
+	require.Len(t, out.Queries, 1)
+	require.Equal(t, string(dataquery.TempoQueryTypeTraceql), out.Queries[0].QueryType)
+
+	var model dataquery.TempoQuery
+	require.NoError(t, json.Unmarshal(out.Queries[0].JSON, &model))
+	require.NotNil(t, model.QueryType)
+	require.Equal(t, string(dataquery.TempoQueryTypeTraceql), *model.QueryType)
+	require.NotNil(t, model.Query)
+	require.Equal(t, `{resource.service.name="api"}`, *model.Query)
+	require.NotNil(t, model.TableType)
+	require.Equal(t, dataquery.SearchTableTypeSpans, *model.TableType)
+}
+
+func TestNormalizeGrafanaSQLRequest_UnsupportedTable(t *testing.T) {
+	ds := &DataSource{}
+	sq := schemas.Query{Table: "other", GrafanaSql: true}
+	raw, err := json.Marshal(sq)
+	require.NoError(t, err)
+	req := &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{
+			GrafanaConfig: config.NewGrafanaCfg(map[string]string{
+				featuretoggles.EnabledFeatures: "dsAbstractionApp",
+			}),
+		},
+		Queries: []backend.DataQuery{{RefID: "X", JSON: raw}},
+	}
+	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	require.Contains(t, errs["X"].Error(), "unsupported table")
+	require.Empty(t, out.Queries)
+}
+
+func TestNormalizeGrafanaSQLRequest_GrafanaSqlMissingTable(t *testing.T) {
+	ds := &DataSource{}
+	sq := schemas.Query{GrafanaSql: true, Table: "   "}
+	raw, err := json.Marshal(sq)
+	require.NoError(t, err)
+	req := &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{
+			GrafanaConfig: config.NewGrafanaCfg(map[string]string{
+				featuretoggles.EnabledFeatures: "dsAbstractionApp",
+			}),
+		},
+		Queries: []backend.DataQuery{{RefID: "A", JSON: raw}},
+	}
+	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	require.Contains(t, errs["A"].Error(), "table is required")
+	require.Empty(t, out.Queries)
+}
+
+func TestNormalizeGrafanaSQLRequest_GrafanaSqlOmittedTable(t *testing.T) {
+	ds := &DataSource{}
+	req := &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{
+			GrafanaConfig: config.NewGrafanaCfg(map[string]string{
+				featuretoggles.EnabledFeatures: "dsAbstractionApp",
+			}),
+		},
+		Queries: []backend.DataQuery{{RefID: "B", JSON: []byte(`{"grafanaSql":true}`)}},
+	}
+	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	require.Contains(t, errs["B"].Error(), "table is required")
+	require.Empty(t, out.Queries)
+}
+
+func TestTraceQLFromSchemadsFilters_Empty(t *testing.T) {
+	q, err := traceQLFromSchemadsFilters(nil)
+	require.NoError(t, err)
+	require.Equal(t, "{}", q)
+}
+
+func TestTraceQLFromSchemadsFilters_TimeColumnRejected(t *testing.T) {
+	_, err := traceQLFromSchemadsFilters([]schemas.ColumnFilter{{
+		Name: tempoSpanColTime,
+		Conditions: []schemas.FilterCondition{{
+			Operator: schemas.OperatorGreaterThan,
+			Value:    "2024-01-01",
+		}},
+	}})
+	require.Error(t, err)
+}
+
+func TestTraceQLFromSchemadsFilters_SpanScopeAndIntrinsic(t *testing.T) {
+	q, err := traceQLFromSchemadsFilters([]schemas.ColumnFilter{
+		{
+			Name: "span.db",
+			Conditions: []schemas.FilterCondition{{
+				Operator: schemas.OperatorEquals,
+				Value:    "postgres",
+			}},
+		},
+		{
+			Name: "status",
+			Conditions: []schemas.FilterCondition{{
+				Operator: schemas.OperatorEquals,
+				Value:    float64(200),
+			}},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, `{span.db="postgres" && status=200}`, q)
+}
+
+func TestTraceQLFromSchemadsFilters_LikeAnchorsFullString(t *testing.T) {
+	q, err := traceQLFromSchemadsFilters([]schemas.ColumnFilter{{
+		Name: "name",
+		Conditions: []schemas.FilterCondition{{
+			Operator: schemas.OperatorLike,
+			Value:    "foo",
+		}},
+	}})
+	require.NoError(t, err)
+	require.Equal(t, `{name=~"^foo$"}`, q)
+}
+
+func TestTraceQLFromSchemadsFilters_LikeWildcard(t *testing.T) {
+	q, err := traceQLFromSchemadsFilters([]schemas.ColumnFilter{{
+		Name: "name",
+		Conditions: []schemas.FilterCondition{{
+			Operator: schemas.OperatorLike,
+			Value:    "%foo%",
+		}},
+	}})
+	require.NoError(t, err)
+	require.Equal(t, `{name=~"^.*foo.*$"}`, q)
+}
+
+func TestTraceQLFromSchemadsFilters_JoinPipeUnsupportedValueType(t *testing.T) {
+	_, err := traceQLFromSchemadsFilters([]schemas.ColumnFilter{{
+		Name: "name",
+		Conditions: []schemas.FilterCondition{{
+			Operator: schemas.OperatorEquals,
+			Values:   []any{"a", map[string]any{"x": 1}},
+		}},
+	}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "converting multi-value match operand")
+	require.Contains(t, err.Error(), "unsupported value type")
+}
+
+func TestTraceQLFromSchemadsFilters_MultiValueNullOperand(t *testing.T) {
+	_, err := traceQLFromSchemadsFilters([]schemas.ColumnFilter{{
+		Name: "name",
+		Conditions: []schemas.FilterCondition{{
+			Operator: schemas.OperatorEquals,
+			Values:   []any{"a", nil},
+		}},
+	}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "converting multi-value match operand")
+	require.Contains(t, err.Error(), "value is null")
+}
