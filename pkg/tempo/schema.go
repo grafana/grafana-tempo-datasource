@@ -150,10 +150,6 @@ func mergeSpansColumnsUnique(fixed, dynamic []schemas.Column) []schemas.Column {
 	return out
 }
 
-func tempoSpansCapabilities() *schemas.DatasourceCapabilities {
-	return &schemas.DatasourceCapabilities{}
-}
-
 // Schema implements schemas.SchemaHandler.
 func (p *tempoSchemaProvider) Schema(ctx context.Context, _ *schemas.SchemaRequest) (*schemas.SchemaResponse, error) {
 	dsInfo, err := p.dsInfo(ctx)
@@ -172,8 +168,7 @@ func (p *tempoSchemaProvider) Schema(ctx context.Context, _ *schemas.SchemaReque
 	}
 	resp := &schemas.SchemaResponse{
 		FullSchema: &schemas.Schema{
-			Tables:       []schemas.Table{table},
-			Capabilities: tempoSpansCapabilities(),
+			Tables: []schemas.Table{table},
 		},
 	}
 	if tagErr != nil {
@@ -189,19 +184,37 @@ func (p *tempoSchemaProvider) Tables(ctx context.Context, _ *schemas.TablesReque
 		return &schemas.TablesResponse{Errors: map[string]string{tempoSchemadsTableSpans: err.Error()}}, nil
 	}
 	return &schemas.TablesResponse{
-		Tables:       []string{tempoSchemadsTableSpans},
-		Capabilities: tempoSpansCapabilities(),
+		Tables: []string{tempoSchemadsTableSpans},
 	}, nil
 }
 
 // Columns implements schemas.ColumnsHandler.
 func (p *tempoSchemaProvider) Columns(ctx context.Context, req *schemas.ColumnsRequest) (*schemas.ColumnsResponse, error) {
+	out := make(map[string][]schemas.Column, len(req.Tables))
+	var errs map[string]string
+	wantSpans := false
+	for _, t := range req.Tables {
+		if t == tempoSchemadsTableSpans {
+			wantSpans = true
+			continue
+		}
+		if errs == nil {
+			errs = make(map[string]string)
+		}
+		errs[t] = unsupportedSchemadsTableError(t)
+	}
+
+	if !wantSpans {
+		return &schemas.ColumnsResponse{Columns: out, Errors: errs}, nil
+	}
+
 	dsInfo, err := p.dsInfo(ctx)
 	if err != nil {
-		return &schemas.ColumnsResponse{
-			Columns: map[string][]schemas.Column{},
-			Errors:  map[string]string{tempoSchemadsTableSpans: err.Error()},
-		}, nil
+		if errs == nil {
+			errs = make(map[string]string)
+		}
+		errs[tempoSchemadsTableSpans] = err.Error()
+		return &schemas.ColumnsResponse{Columns: out, Errors: errs}, nil
 	}
 
 	tagCols, tagErr := p.dynamicTagColumns(ctx, dsInfo)
@@ -209,20 +222,18 @@ func (p *tempoSchemaProvider) Columns(ctx context.Context, req *schemas.ColumnsR
 		p.logger.Warn("tempo schemads: failed to load tags for columns", "error", tagErr)
 	}
 
-	fixed := spansFixedColumns()
-	out := make(map[string][]schemas.Column, len(req.Tables))
-	for _, t := range req.Tables {
-		if t != tempoSchemadsTableSpans {
-			continue
-		}
-		merged := mergeSpansColumnsUnique(fixed, tagCols)
-		out[tempoSchemadsTableSpans] = merged
-	}
-	resp := &schemas.ColumnsResponse{Columns: out}
+	out[tempoSchemadsTableSpans] = mergeSpansColumnsUnique(spansFixedColumns(), tagCols)
 	if tagErr != nil {
-		resp.Errors = map[string]string{tempoSchemadsTableSpans: fmt.Sprintf("attribute columns unavailable: %v", tagErr)}
+		if errs == nil {
+			errs = make(map[string]string)
+		}
+		errs[tempoSchemadsTableSpans] = fmt.Sprintf("attribute columns unavailable: %v", tagErr)
 	}
-	return resp, nil
+	return &schemas.ColumnsResponse{Columns: out, Errors: errs}, nil
+}
+
+func unsupportedSchemadsTableError(table string) string {
+	return fmt.Sprintf("unsupported table %q (only %q is supported)", table, tempoSchemadsTableSpans)
 }
 
 // ColumnValues implements schemas.ColumnValuesHandler.
@@ -231,8 +242,14 @@ func (p *tempoSchemaProvider) ColumnValues(ctx context.Context, req *schemas.Col
 	for _, c := range req.Columns {
 		out[c] = nil
 	}
-	if req.Table != tempoSchemadsTableSpans || len(req.Columns) == 0 {
+	if len(req.Columns) == 0 {
 		return &schemas.ColumnValuesResponse{ColumnValues: out}, nil
+	}
+	if req.Table != tempoSchemadsTableSpans {
+		return &schemas.ColumnValuesResponse{
+			ColumnValues: out,
+			Errors:       globalColumnValuesErrors(req.Columns, unsupportedSchemadsTableError(req.Table)),
+		}, nil
 	}
 
 	dsInfo, err := p.dsInfo(ctx)

@@ -47,6 +47,17 @@ func TestSpansFixedColumnsOperators(t *testing.T) {
 	require.Equal(t, traceqlDurationColumnOperators(), byName[tempoSpanColDuration].Operators)
 }
 
+func TestUnsupportedSchemadsTableError(t *testing.T) {
+	require.Equal(t, `unsupported table "traces" (only "spans" is supported)`, unsupportedSchemadsTableError("traces"))
+}
+
+func TestGlobalColumnValuesErrors_UnsupportedTable(t *testing.T) {
+	msg := unsupportedSchemadsTableError("traces")
+	errs := globalColumnValuesErrors([]string{tempoSpanColTraceIDHidden, "name"}, msg)
+	require.Len(t, errs, 1)
+	require.Equal(t, msg, errs["name"])
+}
+
 func TestMergeSpansColumnsUnique_DropsDynamicWhenNameMatchesFixed(t *testing.T) {
 	fixed := []schemas.Column{{Name: "name"}, {Name: "duration"}}
 	dynamic := []schemas.Column{
