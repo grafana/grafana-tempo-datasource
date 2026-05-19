@@ -150,6 +150,25 @@ func mergeSpansColumnsUnique(fixed, dynamic []schemas.Column) []schemas.Column {
 	return out
 }
 
+func spansMetricsResultColumns() []schemas.Column {
+	return []schemas.Column{
+		{Name: "timestamp", Type: schemas.ColumnTypeDatetime},
+		{Name: "value", Type: schemas.ColumnTypeFloat64},
+	}
+}
+
+func spansTableHints() []schemas.TableHint {
+	return []schemas.TableHint{
+		{Name: "step", Description: "Metrics query step/resolution, e.g. step('30s')", HasValue: true},
+		{Name: "instant", Description: "Run as instant TraceQL metrics query"},
+		{Name: "exemplars", Description: "Max exemplars for range metrics (0 = none)", HasValue: true},
+	}
+}
+
+var tempoMetricsCapabilities = &schemas.DatasourceCapabilities{
+	Limit: true,
+}
+
 // Schema implements schemas.SchemaHandler.
 func (p *tempoSchemaProvider) Schema(ctx context.Context, _ *schemas.SchemaRequest) (*schemas.SchemaResponse, error) {
 	dsInfo, err := p.dsInfo(ctx)
@@ -162,13 +181,16 @@ func (p *tempoSchemaProvider) Schema(ctx context.Context, _ *schemas.SchemaReque
 		tagCols = nil
 	}
 	cols := mergeSpansColumnsUnique(spansFixedColumns(), tagCols)
+	cols = append(cols, spansMetricsResultColumns()...)
 	table := schemas.Table{
-		Name:    tempoSchemadsTableSpans,
-		Columns: cols,
+		Name:       tempoSchemadsTableSpans,
+		Columns:    cols,
+		TableHints: spansTableHints(),
 	}
 	resp := &schemas.SchemaResponse{
 		FullSchema: &schemas.Schema{
-			Tables: []schemas.Table{table},
+			Tables:       []schemas.Table{table},
+			Capabilities: tempoMetricsCapabilities,
 		},
 	}
 	if tagErr != nil {
@@ -184,7 +206,8 @@ func (p *tempoSchemaProvider) Tables(ctx context.Context, _ *schemas.TablesReque
 		return &schemas.TablesResponse{Errors: map[string]string{tempoSchemadsTableSpans: err.Error()}}, nil
 	}
 	return &schemas.TablesResponse{
-		Tables: []string{tempoSchemadsTableSpans},
+		Tables:       []string{tempoSchemadsTableSpans},
+		Capabilities: tempoMetricsCapabilities,
 	}, nil
 }
 

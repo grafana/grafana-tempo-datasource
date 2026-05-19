@@ -20,6 +20,26 @@ func TestGlobalColumnValuesErrors(t *testing.T) {
 	require.Equal(t, "no ds", errsOnlyFixed[""])
 }
 
+func TestSpansTable_MetricsColumns(t *testing.T) {
+	cols := spansMetricsResultColumns()
+	require.Len(t, cols, 2)
+	require.Equal(t, "timestamp", cols[0].Name)
+	require.Equal(t, schemas.ColumnTypeDatetime, cols[0].Type)
+	require.Equal(t, "value", cols[1].Name)
+	require.Equal(t, schemas.ColumnTypeFloat64, cols[1].Type)
+}
+
+func TestSpansTable_MetricsHints(t *testing.T) {
+	hints := spansTableHints()
+	names := make([]string, len(hints))
+	for i, h := range hints {
+		names[i] = h.Name
+	}
+	require.Contains(t, names, "step")
+	require.Contains(t, names, "instant")
+	require.Contains(t, names, "exemplars")
+}
+
 func TestSpansFixedColumnsSupportsValues(t *testing.T) {
 	for _, c := range spansFixedColumns() {
 		require.NotNil(t, c.SupportsValues, "column %q", c.Name)
