@@ -13,6 +13,18 @@ import (
 	schemas "github.com/grafana/schemads"
 )
 
+// schemadsQuery extends schemas.Query with aggregation pushdown for Grafana SQL metrics.
+type schemadsQuery struct {
+	schemas.Query
+	Aggregation *aggregationHint `json:"aggregation,omitempty"`
+}
+
+type aggregationHint struct {
+	Function string   `json:"function"` // COUNT, AVG, SUM, MIN, MAX
+	Column   string   `json:"column"`
+	GroupBy  []string `json:"groupBy"`
+}
+
 // Fixed context strings for scalarToString errors: identify the conversion step without echoing
 // user query text, tag names, or other payload content (PII-safe for logs and API errors).
 const (
@@ -41,7 +53,7 @@ func (ds *DataSource) normalizeGrafanaSQLRequest(ctx context.Context, req *backe
 	sqlErrors := make(map[string]error)
 
 	for _, q := range req.Queries {
-		var sq schemas.Query
+		var sq schemadsQuery
 		if err := json.Unmarshal(q.JSON, &sq); err != nil {
 			out = append(out, q)
 			continue
@@ -62,22 +74,36 @@ func (ds *DataSource) normalizeGrafanaSQLRequest(ctx context.Context, req *backe
 			continue
 		}
 
-		traceQL, err := traceQLFromSchemadsFilters(sq.Filters)
-		if err != nil {
-			sqlErrors[q.RefID] = err
-			continue
-		}
-
 		model := dataquery.NewTempoQuery()
 		model.RefId = q.RefID
 		qt := string(dataquery.TempoQueryTypeTraceql)
 		model.QueryType = &qt
-		model.Query = &traceQL
 		tt := dataquery.SearchTableTypeSpans
 		model.TableType = &tt
-		if sq.Limit != nil && *sq.Limit > 0 {
-			model.Limit = sq.Limit
+
+		var traceQL string
+		var err error
+		if sq.Aggregation != nil {
+			traceQL, err = buildTraceQLMetricsQuery(sq)
+			if err != nil {
+				sqlErrors[q.RefID] = err
+				continue
+			}
+			if err := applyMetricsTableHints(model, sq.TableHintValues); err != nil {
+				sqlErrors[q.RefID] = err
+				continue
+			}
+		} else {
+			traceQL, err = traceQLFromSchemadsFilters(sq.Filters)
+			if err != nil {
+				sqlErrors[q.RefID] = err
+				continue
+			}
+			if sq.Limit != nil && *sq.Limit > 0 {
+				model.Limit = sq.Limit
+			}
 		}
+		model.Query = &traceQL
 
 		raw, err := json.Marshal(model)
 		if err != nil {
@@ -103,6 +129,102 @@ func (ds *DataSource) normalizeGrafanaSQLRequest(ctx context.Context, req *backe
 		Headers:       req.Headers,
 		Queries:       out,
 	}, sqlErrors
+}
+
+func buildTraceQLMetricsQuery(sq schemadsQuery) (string, error) {
+	selector, err := traceQLFromSchemadsFilters(sq.Filters)
+	if err != nil {
+		return "", err
+	}
+
+	var fn string
+	if _, ok := sq.TableHintValues["RATE"]; ok {
+		fn = "| rate()"
+	} else if sq.Aggregation == nil {
+		return "", fmt.Errorf("tempo grafana sql: aggregation is required for metrics queries")
+	} else {
+		fn, err = traceQLMetricsFunction(sq.Aggregation)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	groupBy, err := traceQLMetricsGroupBy(sq.Aggregation)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(selector + " " + fn + groupBy), nil
+}
+
+func traceQLMetricsFunction(agg *aggregationHint) (string, error) {
+	if agg == nil {
+		return "", fmt.Errorf("tempo grafana sql: aggregation is required for metrics queries")
+	}
+	fn := strings.ToUpper(strings.TrimSpace(agg.Function))
+	switch fn {
+	case "COUNT":
+		return "| count_over_time()", nil
+	case "AVG", "SUM", "MIN", "MAX":
+		attr, err := metricsOverTimeAttribute(agg.Column)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("| %s_over_time(%s)", strings.ToLower(fn), attr), nil
+	default:
+		return "", fmt.Errorf("tempo grafana sql: unsupported aggregation function %q", agg.Function)
+	}
+}
+
+func metricsOverTimeAttribute(column string) (string, error) {
+	col := strings.TrimSpace(column)
+	if col == "" || col == "duration" || col == "value" {
+		return "span:duration", nil
+	}
+	return traceqlSelectorFromSpansColumn(col)
+}
+
+func traceQLMetricsGroupBy(agg *aggregationHint) (string, error) {
+	if agg == nil || len(agg.GroupBy) == 0 {
+		return "", nil
+	}
+	var labels []string
+	for _, col := range agg.GroupBy {
+		switch col {
+		case "timestamp", "value":
+			continue
+		}
+		sel, err := traceqlSelectorFromSpansColumn(col)
+		if err != nil {
+			return "", err
+		}
+		labels = append(labels, sel)
+	}
+	if len(labels) == 0 {
+		return "", nil
+	}
+	return " by (" + strings.Join(labels, ", ") + ")", nil
+}
+
+func applyMetricsTableHints(model *dataquery.TempoQuery, hints map[string]string) error {
+	if hints == nil {
+		return nil
+	}
+	if _, ok := hints["INSTANT"]; ok {
+		instant := dataquery.MetricsQueryTypeInstant
+		model.MetricsQueryType = &instant
+	}
+	if step, ok := hints["STEP"]; ok {
+		model.Step = &step
+	}
+	if ex, ok := hints["EXEMPLARS"]; ok {
+		n, err := strconv.ParseInt(strings.TrimSpace(ex), 10, 64)
+		if err != nil {
+			return fmt.Errorf("tempo grafana sql: invalid EXEMPLARS hint value %q", ex)
+		}
+		model.Exemplars = &n
+	}
+	return nil
 }
 
 // traceQLFromSchemadsFilters builds a TraceQL span-search selector `{...}` from schemads column filters.
