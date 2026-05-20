@@ -27,8 +27,9 @@ func TestNormalizeGrafanaSQLRequest_DisabledToggle(t *testing.T) {
 			JSON:  []byte(`{"grafanaSql":true,"table":"spans"}`),
 		}},
 	}
-	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
 	require.Nil(t, errs)
+	require.Nil(t, metricsRefIDs)
 	require.Equal(t, req, out)
 }
 
@@ -47,8 +48,9 @@ func TestNormalizeGrafanaSQLRequest_NotGrafanaSqlPassthrough(t *testing.T) {
 			JSON:      orig,
 		}},
 	}
-	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
 	require.Nil(t, errs)
+	require.Nil(t, metricsRefIDs)
 	require.Len(t, out.Queries, 1)
 	require.JSONEq(t, string(orig), string(out.Queries[0].JSON))
 }
@@ -80,8 +82,9 @@ func TestNormalizeGrafanaSQLRequest_ConvertsSpansQuery(t *testing.T) {
 		Queries: []backend.DataQuery{{RefID: "A", JSON: raw}},
 	}
 
-	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
 	require.Nil(t, errs)
+	require.Nil(t, metricsRefIDs)
 	require.Len(t, out.Queries, 1)
 	require.Equal(t, string(dataquery.TempoQueryTypeTraceql), out.Queries[0].QueryType)
 
@@ -108,8 +111,9 @@ func TestNormalizeGrafanaSQLRequest_UnsupportedTable(t *testing.T) {
 		},
 		Queries: []backend.DataQuery{{RefID: "X", JSON: raw}},
 	}
-	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
 	require.Contains(t, errs["X"].Error(), "unsupported table")
+	require.Nil(t, metricsRefIDs)
 	require.Empty(t, out.Queries)
 }
 
@@ -126,8 +130,9 @@ func TestNormalizeGrafanaSQLRequest_GrafanaSqlMissingTable(t *testing.T) {
 		},
 		Queries: []backend.DataQuery{{RefID: "A", JSON: raw}},
 	}
-	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
 	require.Contains(t, errs["A"].Error(), "table is required")
+	require.Nil(t, metricsRefIDs)
 	require.Empty(t, out.Queries)
 }
 
@@ -141,8 +146,9 @@ func TestNormalizeGrafanaSQLRequest_GrafanaSqlOmittedTable(t *testing.T) {
 		},
 		Queries: []backend.DataQuery{{RefID: "B", JSON: []byte(`{"grafanaSql":true}`)}},
 	}
-	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
 	require.Contains(t, errs["B"].Error(), "table is required")
+	require.Nil(t, metricsRefIDs)
 	require.Empty(t, out.Queries)
 }
 

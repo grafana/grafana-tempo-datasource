@@ -94,9 +94,10 @@ func TestNormalizeGrafanaSQLRequest_MetricsQuery(t *testing.T) {
 		Queries: []backend.DataQuery{{RefID: "A", JSON: raw}},
 	}
 
-	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
 	require.Nil(t, errs)
 	require.Len(t, out.Queries, 1)
+	require.Contains(t, metricsRefIDs, "A")
 	require.Equal(t, string(dataquery.TempoQueryTypeTraceql), out.Queries[0].QueryType)
 
 	var model dataquery.TempoQuery
@@ -132,9 +133,10 @@ func TestNormalizeGrafanaSQLRequest_MetricsStepAndInstant(t *testing.T) {
 		Queries: []backend.DataQuery{{RefID: "A", JSON: raw}},
 	}
 
-	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
 	require.Nil(t, errs)
 	require.Len(t, out.Queries, 1)
+	require.Contains(t, metricsRefIDs, "A")
 
 	var model dataquery.TempoQuery
 	require.NoError(t, json.Unmarshal(out.Queries[0].JSON, &model))
@@ -170,8 +172,9 @@ func TestNormalizeGrafanaSQLRequest_MetricsStillSpanSearchWithoutAggregation(t *
 		Queries: []backend.DataQuery{{RefID: "A", JSON: raw}},
 	}
 
-	out, errs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
 	require.Nil(t, errs)
+	require.Nil(t, metricsRefIDs)
 	require.Len(t, out.Queries, 1)
 
 	var model dataquery.TempoQuery

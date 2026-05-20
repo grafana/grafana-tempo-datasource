@@ -38,19 +38,21 @@ const (
 // metrics vs search via isMetricsQuery(query), not via queryType. tableType "spans" is still required
 // so Search() selects span frames instead of defaulting to traces.
 // sqlErrors maps refId to validation or conversion errors for queries that were not converted.
-func (ds *DataSource) normalizeGrafanaSQLRequest(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataRequest, map[string]error) {
+// metricsRefIDs lists refIDs converted to TraceQL metrics queries (flatten responses for these).
+func (ds *DataSource) normalizeGrafanaSQLRequest(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataRequest, map[string]error, map[string]struct{}) {
 	_ = ctx
 	if req == nil || len(req.Queries) == 0 {
-		return req, nil
+		return req, nil, nil
 	}
 
 	grafanaConfig := req.PluginContext.GrafanaConfig
 	if grafanaConfig == nil || !grafanaConfig.FeatureToggles().IsEnabled("dsAbstractionApp") {
-		return req, nil
+		return req, nil, nil
 	}
 
 	out := make([]backend.DataQuery, 0, len(req.Queries))
 	sqlErrors := make(map[string]error)
+	metricsRefIDs := make(map[string]struct{})
 
 	for _, q := range req.Queries {
 		var sq schemadsQuery
@@ -93,6 +95,7 @@ func (ds *DataSource) normalizeGrafanaSQLRequest(ctx context.Context, req *backe
 				sqlErrors[q.RefID] = err
 				continue
 			}
+			metricsRefIDs[q.RefID] = struct{}{}
 		} else {
 			traceQL, err = traceQLFromSchemadsFilters(sq.Filters)
 			if err != nil {
@@ -124,11 +127,14 @@ func (ds *DataSource) normalizeGrafanaSQLRequest(ctx context.Context, req *backe
 	if len(sqlErrors) == 0 {
 		sqlErrors = nil
 	}
+	if len(metricsRefIDs) == 0 {
+		metricsRefIDs = nil
+	}
 	return &backend.QueryDataRequest{
 		PluginContext: req.PluginContext,
 		Headers:       req.Headers,
 		Queries:       out,
-	}, sqlErrors
+	}, sqlErrors, metricsRefIDs
 }
 
 func buildTraceQLMetricsQuery(sq schemadsQuery) (string, error) {

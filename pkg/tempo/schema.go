@@ -150,6 +150,10 @@ func mergeSpansColumnsUnique(fixed, dynamic []schemas.Column) []schemas.Column {
 	return out
 }
 
+// spansMetricsResultColumns are the tabular result shape for Grafana SQL metrics queries
+// compiled to TraceQL metrics (| rate(), | count_over_time(), etc.).
+// See https://grafana.com/docs/tempo/latest/metrics-from-traces/metrics-queries/functions/
+// TraceQL metrics is a public preview feature on Tempo.
 func spansMetricsResultColumns() []schemas.Column {
 	return []schemas.Column{
 		{Name: "timestamp", Type: schemas.ColumnTypeDatetime},
@@ -157,6 +161,7 @@ func spansMetricsResultColumns() []schemas.Column {
 	}
 }
 
+// spansTableHints map SQL FOR (...) clauses to TraceQL metrics API options.
 func spansTableHints() []schemas.TableHint {
 	return []schemas.TableHint{
 		{Name: "step", Description: "Metrics query step/resolution, e.g. step('30s')", HasValue: true},

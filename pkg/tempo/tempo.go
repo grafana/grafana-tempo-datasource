@@ -102,7 +102,7 @@ func (ds *DataSource) QueryData(ctx context.Context, req *backend.QueryDataReque
 	ctxLogger := ds.logger.FromContext(ctx)
 	ctxLogger.Debug("Processing queries", "queryLength", len(req.Queries), "function", logEntrypoint())
 
-	req, sqlErrs := ds.normalizeGrafanaSQLRequest(ctx, req)
+	req, sqlErrs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(ctx, req)
 
 	// create response struct
 	response := backend.NewQueryDataResponse()
@@ -155,6 +155,15 @@ func (ds *DataSource) QueryData(ctx context.Context, req *backend.QueryDataReque
 				ErrorSource: backend.ErrorSourceDownstream,
 			}
 		}
+	}
+
+	for refID := range metricsRefIDs {
+		dr, ok := response.Responses[refID]
+		if !ok || dr.Error != nil {
+			continue
+		}
+		dr.Frames = flattenTimeSeriesToTabular(dr.Frames)
+		response.Responses[refID] = dr
 	}
 
 	ctxLogger.Debug("All queries processed", "function", logEntrypoint())
