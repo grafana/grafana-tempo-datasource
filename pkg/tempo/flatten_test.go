@@ -45,6 +45,50 @@ func TestFlattenTimeSeriesToTabular_TwoSeries(t *testing.T) {
 	require.Equal(t, "b", svc2.(string))
 }
 
+func TestFlattenTimeSeriesToTabular_MultipleLabelsPerRow(t *testing.T) {
+	t1 := time.Unix(1700000000, 0)
+	labels := data.Labels{"service": "frontend", "env": "prod"}
+
+	frame := data.NewFrame("series",
+		data.NewField("time", nil, []time.Time{t1}),
+		data.NewField("rate", labels, []float64{1.0}),
+	)
+
+	out := flattenTimeSeriesToTabular(data.Frames{frame})
+	require.Len(t, out, 1)
+	f := out[0]
+	require.Equal(t, 1, f.Rows())
+
+	// Without distinct string pointers, both columns would read "prod" (last v in the inner loop).
+	svcField, _ := f.FieldByName("service")
+	svc, _ := svcField.ConcreteAt(0)
+	require.Equal(t, "frontend", svc.(string))
+	envField, _ := f.FieldByName("env")
+	env, _ := envField.ConcreteAt(0)
+	require.Equal(t, "prod", env.(string))
+}
+
+func TestFlattenTimeSeriesToTabular_MultipleSamplesPerSeries(t *testing.T) {
+	t1 := time.Unix(1700000000, 0)
+	t2 := time.Unix(1700000060, 0)
+
+	frame := data.NewFrame("series",
+		data.NewField("time", nil, []time.Time{t1, t2}),
+		data.NewField("rate", data.Labels{"service": "api"}, []float64{1.0, 3.5}),
+	)
+
+	out := flattenTimeSeriesToTabular(data.Frames{frame})
+	require.Len(t, out, 1)
+	f := out[0]
+	require.Equal(t, 2, f.Rows())
+
+	valueField, _ := f.FieldByName("value")
+	v0, _ := valueField.ConcreteAt(0)
+	require.InDelta(t, 1.0, v0.(float64), 0)
+	v1, _ := valueField.ConcreteAt(1)
+	require.InDelta(t, 3.5, v1.(float64), 0)
+}
+
 func TestFlattenTimeSeriesToTabular_SkipsExemplarFrames(t *testing.T) {
 	t1 := time.Unix(1700000000, 0)
 

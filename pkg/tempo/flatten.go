@@ -51,10 +51,9 @@ func flattenTimeSeriesToTabular(frames data.Frames) data.Frames {
 				if err != nil {
 					continue
 				}
-				val := v
 				rows = append(rows, row{
 					t:      t,
-					value:  &val,
+					value:  copyFloat64Ptr(v),
 					labels: f.Labels,
 				})
 			}
@@ -87,7 +86,7 @@ func flattenTimeSeriesToTabular(frames data.Frames) data.Frames {
 		values[i] = r.value
 		for _, k := range labelKeys {
 			if v, ok := r.labels[k]; ok {
-				labelCols[k][i] = &v
+				labelCols[k][i] = copyStringPtr(v)
 			}
 		}
 	}
@@ -126,6 +125,18 @@ func shouldSkipMetricsFlattenFrame(frame *data.Frame) bool {
 		return true
 	}
 	return false
+}
+
+func copyStringPtr(s string) *string {
+	p := new(string)
+	*p = s
+	return p
+}
+
+func copyFloat64Ptr(v float64) *float64 {
+	p := new(float64)
+	*p = v
+	return p
 }
 
 func metricsTimeField(frame *data.Frame) *data.Field {
