@@ -78,6 +78,29 @@ func TestGlobalColumnValuesErrors_UnsupportedTable(t *testing.T) {
 	require.Equal(t, msg, errs["name"])
 }
 
+func TestSpansTableColumns_IncludesMetricsAndDropsDynamicCollisions(t *testing.T) {
+	got := spansTableColumns([]schemas.Column{
+		{Name: "value", Description: "tag must lose to metrics column"},
+		{Name: "resource.svc"},
+	})
+	names := make([]string, len(got))
+	for i, c := range got {
+		names[i] = c.Name
+	}
+	require.Contains(t, names, "timestamp")
+	require.Contains(t, names, "value")
+	require.Contains(t, names, "resource.svc")
+	// One "value" — the metrics column, not the dynamic tag description.
+	var valueCols int
+	for _, c := range got {
+		if c.Name == "value" {
+			valueCols++
+			require.NotEqual(t, "tag must lose to metrics column", c.Description)
+		}
+	}
+	require.Equal(t, 1, valueCols)
+}
+
 func TestMergeSpansColumnsUnique_DropsDynamicWhenNameMatchesFixed(t *testing.T) {
 	fixed := []schemas.Column{{Name: "name"}, {Name: "duration"}}
 	dynamic := []schemas.Column{

@@ -121,8 +121,16 @@ func schemaBoolPtr(b bool) *bool {
 	return &b
 }
 
-// mergeSpansColumnsUnique returns fixed span columns followed by dynamic tag columns,
-// omitting any dynamic column whose Name collides with a fixed column (e.g. intrinsic
+// spansTableColumns merges fixed span columns, metrics result columns, and dynamic tag
+// columns. Fixed and metrics names win over dynamic tags (e.g. a tag named "value" must
+// not duplicate the metrics result column).
+func spansTableColumns(dynamic []schemas.Column) []schemas.Column {
+	fixed := append(append([]schemas.Column{}, spansFixedColumns()...), spansMetricsResultColumns()...)
+	return mergeSpansColumnsUnique(fixed, dynamic)
+}
+
+// mergeSpansColumnsUnique returns primary columns followed by dynamic tag columns,
+// omitting any dynamic column whose Name collides with a primary column (e.g. intrinsic
 // "name" / "duration" from Tempo search tags API vs the same keys in spansFixedColumns).
 func mergeSpansColumnsUnique(fixed, dynamic []schemas.Column) []schemas.Column {
 	seen := make(map[string]struct{}, len(fixed)+len(dynamic))
@@ -185,8 +193,7 @@ func (p *tempoSchemaProvider) Schema(ctx context.Context, _ *schemas.SchemaReque
 		p.logger.Warn("tempo schemads: failed to load tags for schema", "error", tagErr)
 		tagCols = nil
 	}
-	cols := mergeSpansColumnsUnique(spansFixedColumns(), tagCols)
-	cols = append(cols, spansMetricsResultColumns()...)
+	cols := spansTableColumns(tagCols)
 	table := schemas.Table{
 		Name:       tempoSchemadsTableSpans,
 		Columns:    cols,
@@ -250,7 +257,7 @@ func (p *tempoSchemaProvider) Columns(ctx context.Context, req *schemas.ColumnsR
 		p.logger.Warn("tempo schemads: failed to load tags for columns", "error", tagErr)
 	}
 
-	out[tempoSchemadsTableSpans] = mergeSpansColumnsUnique(spansFixedColumns(), tagCols)
+	out[tempoSchemadsTableSpans] = spansTableColumns(tagCols)
 	if tagErr != nil {
 		if errs == nil {
 			errs = make(map[string]string)
