@@ -33,14 +33,14 @@ func TestFlattenTimeSeriesToTabular_TwoSeries(t *testing.T) {
 	ts, _ := f.Fields[0].ConcreteAt(0)
 	require.Equal(t, t1, ts.(time.Time))
 	val, _ := f.Fields[1].ConcreteAt(0)
-	require.InDelta(t, 1.5, val.(float64), 0)
+	require.Equal(t, 1.5, val.(float64))
 	svc, _ := f.Fields[2].ConcreteAt(0)
 	require.Equal(t, "a", svc.(string))
 
 	ts2, _ := f.Fields[0].ConcreteAt(1)
 	require.Equal(t, t2, ts2.(time.Time))
 	val2, _ := f.Fields[1].ConcreteAt(1)
-	require.InDelta(t, 2.5, val2.(float64), 0)
+	require.Equal(t, 2.5, val2.(float64))
 	svc2, _ := f.Fields[2].ConcreteAt(1)
 	require.Equal(t, "b", svc2.(string))
 }
@@ -84,9 +84,9 @@ func TestFlattenTimeSeriesToTabular_MultipleSamplesPerSeries(t *testing.T) {
 
 	valueField, _ := f.FieldByName("value")
 	v0, _ := valueField.ConcreteAt(0)
-	require.InDelta(t, 1.0, v0.(float64), 0)
+	require.Equal(t, 1.0, v0.(float64))
 	v1, _ := valueField.ConcreteAt(1)
-	require.InDelta(t, 3.5, v1.(float64), 0)
+	require.Equal(t, 3.5, v1.(float64))
 }
 
 func TestFlattenTimeSeriesToTabular_SkipsExemplarFrames(t *testing.T) {

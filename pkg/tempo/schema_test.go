@@ -20,21 +20,13 @@ func TestGlobalColumnValuesErrors(t *testing.T) {
 	require.Equal(t, "no ds", errsOnlyFixed[""])
 }
 
-func TestSpansTable_MetricsColumns(t *testing.T) {
-	cols := spansMetricsResultColumns()
-	require.Len(t, cols, 2)
-	require.Equal(t, "timestamp", cols[0].Name)
-	require.Equal(t, schemas.ColumnTypeDatetime, cols[0].Type)
-	require.Equal(t, "value", cols[1].Name)
-	require.Equal(t, schemas.ColumnTypeFloat64, cols[1].Type)
-}
-
 func TestSpansTable_MetricsHints(t *testing.T) {
 	hints := spansTableHints()
 	names := make([]string, len(hints))
 	for i, h := range hints {
 		names[i] = h.Name
 	}
+	require.Contains(t, names, "rate")
 	require.Contains(t, names, "step")
 	require.Contains(t, names, "instant")
 	require.Contains(t, names, "exemplars")
@@ -65,6 +57,13 @@ func TestSpansFixedColumnsOperators(t *testing.T) {
 	require.Equal(t, traceqlIdentifierColumnOperators(), byName[tempoSpanColSpanID].Operators)
 	require.Equal(t, traceqlStringColumnOperators(), byName[tempoSpanColName].Operators)
 	require.Equal(t, traceqlDurationColumnOperators(), byName[tempoSpanColDuration].Operators)
+
+	require.Equal(t, schemas.ColumnTypeDatetime, byName[tempoSpanColTimestamp].Type)
+	require.Equal(t, "Sample time for TraceQL metrics SQL (flattened from series). Not used for span search.", byName[tempoSpanColTimestamp].Metadata.Description)
+	require.Nil(t, byName[tempoSpanColTimestamp].Operators)
+	require.Equal(t, schemas.ColumnTypeFloat64, byName[tempoSpanColValue].Type)
+	require.Equal(t, "Metric sample value for TraceQL metrics SQL (rate, count_over_time, etc.).", byName[tempoSpanColValue].Metadata.Description)
+	require.Nil(t, byName[tempoSpanColValue].Operators)
 }
 
 func TestUnsupportedSchemadsTableError(t *testing.T) {
@@ -80,7 +79,9 @@ func TestGlobalColumnValuesErrors_UnsupportedTable(t *testing.T) {
 
 func TestSpansTableColumns_IncludesMetricsAndDropsDynamicCollisions(t *testing.T) {
 	got := spansTableColumns([]schemas.Column{
-		{Name: "value", Description: "tag must lose to metrics column"},
+		{Name: "value", Metadata: schemas.Metadata{Description: "tag must lose to metrics column"}},
+		{Name: "name", Metadata: schemas.Metadata{Description: "dup from tags"}},
+		{Name: "duration"},
 		{Name: "resource.svc"},
 	})
 	names := make([]string, len(got))
@@ -89,31 +90,22 @@ func TestSpansTableColumns_IncludesMetricsAndDropsDynamicCollisions(t *testing.T
 	}
 	require.Contains(t, names, "timestamp")
 	require.Contains(t, names, "value")
+	require.Contains(t, names, "name")
+	require.Contains(t, names, "duration")
 	require.Contains(t, names, "resource.svc")
-	// One "value" — the metrics column, not the dynamic tag description.
-	var valueCols int
+	var valueCols, nameCols int
 	for _, c := range got {
-		if c.Name == "value" {
+		switch c.Name {
+		case "value":
 			valueCols++
-			require.NotEqual(t, "tag must lose to metrics column", c.Description)
+			require.NotEqual(t, "tag must lose to metrics column", c.Metadata.Description)
+		case "name":
+			nameCols++
+			require.NotEqual(t, "dup from tags", c.Metadata.Description)
 		}
 	}
 	require.Equal(t, 1, valueCols)
-}
-
-func TestMergeSpansColumnsUnique_DropsDynamicWhenNameMatchesFixed(t *testing.T) {
-	fixed := []schemas.Column{{Name: "name"}, {Name: "duration"}}
-	dynamic := []schemas.Column{
-		{Name: "name", Description: "dup from tags"},
-		{Name: "resource.svc", Description: "ok"},
-		{Name: "duration"},
-	}
-	got := mergeSpansColumnsUnique(fixed, dynamic)
-	names := make([]string, len(got))
-	for i, c := range got {
-		names[i] = c.Name
-	}
-	require.Equal(t, []string{"name", "duration", "resource.svc"}, names)
+	require.Equal(t, 1, nameCols)
 }
 
 func TestFlattenTempoSearchTagScopesToColumnNames(t *testing.T) {

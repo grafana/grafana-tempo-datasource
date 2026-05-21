@@ -114,6 +114,14 @@ func flattenTimeSeriesToTabular(frames data.Frames) data.Frames {
 	return data.Frames{out}
 }
 
+// shouldSkipMetricsFlattenFrame returns true for frames that must not be merged into the
+// SQL tabular result (timestamp, value, label columns). TraceQL range metrics responses
+// include exemplar frames alongside series frames (see traceql.TransformMetricsResponse and
+// transformExemplarToFrame): those rows are annotations for graph drill-down (trace IDs),
+// not additional metric samples. They have Time/Value fields but a different shape and
+// semantics; flattening them would pollute the table and add columns (e.g. traceId) that
+// schemads does not advertise. Skipping by Name and DataTopicAnnotations matches how this
+// plugin and Grafana mark exemplar data.
 func shouldSkipMetricsFlattenFrame(frame *data.Frame) bool {
 	if frame == nil {
 		return true

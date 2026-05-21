@@ -77,7 +77,11 @@ func (ds *DataSource) tempoGET(ctx context.Context, dsInfo *DatasourceInfo, temp
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			ds.logger.Warn("Failed to close response body", "error", err, "path", tempoPath)
+		}
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

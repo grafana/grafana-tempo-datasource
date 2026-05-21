@@ -21,6 +21,8 @@ const (
 	tempoSpanColTime          = "time"
 	tempoSpanColName          = "name"
 	tempoSpanColDuration      = "duration"
+	tempoSpanColTimestamp     = "timestamp"
+	tempoSpanColValue         = "value"
 )
 
 // traceqlStringColumnOperators matches TraceQL attribute filters (=, !=, in, like/regex).
@@ -78,61 +80,68 @@ func spansFixedColumnNames() map[string]struct{} {
 	return m
 }
 
+// spansFixedColumns returns span-search columns plus metrics result columns (timestamp, value)
+// for the spans table. TraceQL metrics: https://grafana.com/docs/tempo/latest/metrics-from-traces/metrics-queries/functions/
 func spansFixedColumns() []schemas.Column {
 	falsePtr := schemaBoolPtr(false)
 	truePtr := schemaBoolPtr(true)
 	traceqlStringOps := traceqlStringColumnOperators()
 	traceqlIDOps := traceqlIdentifierColumnOperators()
 	traceqlDurOps := traceqlDurationColumnOperators()
-	return []schemas.Column{
+	return append([]schemas.Column{
 		{
 			Name: tempoSpanColTraceIDHidden, Type: schemas.ColumnTypeString, Operators: traceqlIDOps,
-			Description: "Trace ID (TraceQL: trace:id). Used for drill-down links.", SupportsValues: falsePtr,
+			Metadata: schemaColumnMetadata("Trace ID (TraceQL: trace:id). Used for drill-down links."), SupportsValues: falsePtr,
 		},
 		{
 			Name: tempoSpanColTraceService, Type: schemas.ColumnTypeString, Operators: traceqlStringOps,
-			Description: "Root trace service (TraceQL: trace:rootService / rootServiceName).", SupportsValues: falsePtr,
+			Metadata: schemaColumnMetadata("Root trace service (TraceQL: trace:rootService / rootServiceName)."), SupportsValues: falsePtr,
 		},
 		{
 			Name: tempoSpanColTraceName, Type: schemas.ColumnTypeString, Operators: traceqlStringOps,
-			Description: "Root trace name (TraceQL: trace:rootName / rootName).", SupportsValues: falsePtr,
+			Metadata: schemaColumnMetadata("Root trace name (TraceQL: trace:rootName / rootName)."), SupportsValues: falsePtr,
 		},
 		{
 			Name: tempoSpanColSpanID, Type: schemas.ColumnTypeString, Operators: traceqlIDOps,
-			Description: "Span ID (TraceQL: span:id).", SupportsValues: falsePtr,
+			Metadata: schemaColumnMetadata("Span ID (TraceQL: span:id)."), SupportsValues: falsePtr,
 		},
 		{
 			// Span start time is not a TraceQL filter intrinsic; bound queries with the panel time range.
 			Name: tempoSpanColTime, Type: schemas.ColumnTypeDatetime, Operators: nil,
-			Description: "Span start time (display only). Not filterable in TraceQL; use the query time range.", SupportsValues: falsePtr,
+			Metadata: schemaColumnMetadata("Span start time (display only). Not filterable in TraceQL; use the query time range."), SupportsValues: falsePtr,
 		},
 		{
 			Name: tempoSpanColName, Type: schemas.ColumnTypeString, Operators: traceqlStringOps,
-			Description: "Span name (TraceQL: name / span:name).", SupportsValues: truePtr,
+			Metadata: schemaColumnMetadata("Span name (TraceQL: name / span:name)."), SupportsValues: truePtr,
 		},
 		{
 			Name: tempoSpanColDuration, Type: schemas.ColumnTypeFloat64, Operators: traceqlDurOps,
-			Description: "Span duration (TraceQL: duration / span:duration). Comparisons use duration units in the query (for example 100ms).", SupportsValues: truePtr,
+			Metadata: schemaColumnMetadata("Span duration (TraceQL: duration / span:duration). Comparisons use duration units in the query (for example 100ms)."), SupportsValues: truePtr,
 		},
-	}
+	}, []schemas.Column{
+		{
+			Name: tempoSpanColTimestamp, Type: schemas.ColumnTypeDatetime,
+			Metadata: schemaColumnMetadata("Sample time for TraceQL metrics SQL (flattened from series). Not used for span search."), SupportsValues: falsePtr,
+		},
+		{
+			Name: tempoSpanColValue, Type: schemas.ColumnTypeFloat64,
+			Metadata: schemaColumnMetadata("Metric sample value for TraceQL metrics SQL (rate, count_over_time, etc.)."), SupportsValues: falsePtr,
+		},
+	}...)
 }
 
 func schemaBoolPtr(b bool) *bool {
 	return &b
 }
 
-// spansTableColumns merges fixed span columns, metrics result columns, and dynamic tag
-// columns. Fixed and metrics names win over dynamic tags (e.g. a tag named "value" must
-// not duplicate the metrics result column).
-func spansTableColumns(dynamic []schemas.Column) []schemas.Column {
-	fixed := append(append([]schemas.Column{}, spansFixedColumns()...), spansMetricsResultColumns()...)
-	return mergeSpansColumnsUnique(fixed, dynamic)
+func schemaColumnMetadata(description string) schemas.Metadata {
+	return schemas.Metadata{Description: description}
 }
 
-// mergeSpansColumnsUnique returns primary columns followed by dynamic tag columns,
-// omitting any dynamic column whose Name collides with a primary column (e.g. intrinsic
-// "name" / "duration" from Tempo search tags API vs the same keys in spansFixedColumns).
-func mergeSpansColumnsUnique(fixed, dynamic []schemas.Column) []schemas.Column {
+// spansTableColumns merges spansFixedColumns and dynamic tag columns. Fixed names win over
+// dynamic tags (e.g. intrinsic "name" / "duration", or a tag named "value").
+func spansTableColumns(dynamic []schemas.Column) []schemas.Column {
+	fixed := spansFixedColumns()
 	seen := make(map[string]struct{}, len(fixed)+len(dynamic))
 	out := make([]schemas.Column, 0, len(fixed)+len(dynamic))
 	for _, c := range fixed {
@@ -158,20 +167,11 @@ func mergeSpansColumnsUnique(fixed, dynamic []schemas.Column) []schemas.Column {
 	return out
 }
 
-// spansMetricsResultColumns are the tabular result shape for Grafana SQL metrics queries
-// compiled to TraceQL metrics (| rate(), | count_over_time(), etc.).
-// See https://grafana.com/docs/tempo/latest/metrics-from-traces/metrics-queries/functions/
-// TraceQL metrics is a public preview feature on Tempo.
-func spansMetricsResultColumns() []schemas.Column {
-	return []schemas.Column{
-		{Name: "timestamp", Type: schemas.ColumnTypeDatetime},
-		{Name: "value", Type: schemas.ColumnTypeFloat64},
-	}
-}
-
 // spansTableHints map SQL FOR (...) clauses to TraceQL metrics API options.
+// rate compiles to TraceQL | rate() (spans per second); range resolution uses step, not rate('5m').
 func spansTableHints() []schemas.TableHint {
 	return []schemas.TableHint{
+		{Name: "rate", Description: "TraceQL span rate (| rate()). Spans per second. Use step for resolution.", HasValue: true},
 		{Name: "step", Description: "Metrics query step/resolution, e.g. step('30s')", HasValue: true},
 		{Name: "instant", Description: "Run as instant TraceQL metrics query"},
 		{Name: "exemplars", Description: "Max exemplars for range metrics (0 = none)", HasValue: true},
@@ -377,7 +377,7 @@ func (p *tempoSchemaProvider) dynamicTagColumns(ctx context.Context, dsInfo *Dat
 			Name:           n,
 			Type:           schemas.ColumnTypeString,
 			Operators:      traceqlStringColumnOperators(),
-			Description:    "Attribute tag from Tempo.",
+			Metadata:       schemaColumnMetadata("Attribute tag from Tempo."),
 			SupportsValues: truePtr,
 		})
 	}
