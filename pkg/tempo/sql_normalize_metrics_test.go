@@ -186,6 +186,76 @@ func TestNormalizeGrafanaSQLRequest_MetricsStillSpanSearchWithoutAggregation(t *
 	require.Equal(t, int64(50), *model.Limit)
 }
 
+// Multi-query panels can mix span-search SQL, metrics SQL, and non-SQL queries in one request.
+// metricsRefIDs must list only refIDs that need response flattening.
+func TestNormalizeGrafanaSQLRequest_MixedSpanSearchAndMetrics(t *testing.T) {
+	ds := &DataSource{}
+	pluginCtx := backend.PluginContext{
+		GrafanaConfig: config.NewGrafanaCfg(map[string]string{
+			featuretoggles.EnabledFeatures: "dsAbstractionApp",
+		}),
+	}
+
+	spanSearchRaw, err := json.Marshal(schemas.Query{
+		Table:      tempoSchemadsTableSpans,
+		GrafanaSql: true,
+		Filters: []schemas.ColumnFilter{{
+			Name: "name",
+			Conditions: []schemas.FilterCondition{{
+				Operator: schemas.OperatorEquals,
+				Value:    "GET",
+			}},
+		}},
+	})
+	require.NoError(t, err)
+
+	metricsRaw, err := json.Marshal(schemadsQuery{
+		Query: schemas.Query{
+			Table:      tempoSchemadsTableSpans,
+			GrafanaSql: true,
+		},
+		Aggregation: &aggregationHint{Function: "COUNT"},
+	})
+	require.NoError(t, err)
+
+	legacyPassthrough := []byte(`{"refId":"C","queryType":"traceqlSearch","query":"{}"}`)
+
+	req := &backend.QueryDataRequest{
+		PluginContext: pluginCtx,
+		Queries: []backend.DataQuery{
+			{RefID: "A", JSON: spanSearchRaw},
+			{RefID: "B", JSON: metricsRaw},
+			{RefID: "C", QueryType: string(dataquery.TempoQueryTypeTraceqlSearch), JSON: legacyPassthrough},
+		},
+	}
+
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	require.Nil(t, errs)
+	require.Len(t, out.Queries, 3)
+	require.Len(t, metricsRefIDs, 1)
+	require.Contains(t, metricsRefIDs, "B")
+	require.NotContains(t, metricsRefIDs, "A")
+	require.NotContains(t, metricsRefIDs, "C")
+
+	byRef := make(map[string]backend.DataQuery, len(out.Queries))
+	for _, q := range out.Queries {
+		byRef[q.RefID] = q
+	}
+
+	var spanModel dataquery.TempoQuery
+	require.NoError(t, json.Unmarshal(byRef["A"].JSON, &spanModel))
+	require.NotNil(t, spanModel.Query)
+	require.Equal(t, `{name="GET"}`, *spanModel.Query)
+	require.NotContains(t, *spanModel.Query, "|")
+
+	var metricsModel dataquery.TempoQuery
+	require.NoError(t, json.Unmarshal(byRef["B"].JSON, &metricsModel))
+	require.NotNil(t, metricsModel.Query)
+	require.Equal(t, `{} | count_over_time()`, *metricsModel.Query)
+
+	require.JSONEq(t, string(legacyPassthrough), string(byRef["C"].JSON))
+}
+
 func int64Ptr(n int64) *int64 {
 	return &n
 }

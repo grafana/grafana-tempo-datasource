@@ -20,6 +20,52 @@ func TestGlobalColumnValuesErrors(t *testing.T) {
 	require.Equal(t, "no ds", errsOnlyFixed[""])
 }
 
+func TestTempoMetricsCapabilities_AggregateFunctions(t *testing.T) {
+	require.Equal(t, []schemas.AggregateFunction{
+		schemas.AggregateCount,
+		schemas.AggregateAvg,
+		schemas.AggregateSum,
+		schemas.AggregateMin,
+		schemas.AggregateMax,
+	}, tempoMetricsCapabilities.AggregateFunctions)
+	require.True(t, tempoMetricsCapabilities.Limit)
+}
+
+func TestSpansTableMetadata_ConciseCustom(t *testing.T) {
+	meta := spansTableMetadata()
+	require.Contains(t, meta.Description, "GROUP BY")
+	require.NotContains(t, meta.Custom, "examples")
+
+	patterns, ok := meta.Custom["queryPatterns"].([]map[string]string)
+	require.True(t, ok)
+	require.Len(t, patterns, 4)
+	modes := make([]string, len(patterns))
+	for i, p := range patterns {
+		modes[i] = p["mode"]
+		require.NotEmpty(t, p["sql"])
+		require.NotContains(t, p["sql"], "\n")
+	}
+	require.Contains(t, modes, "span_tabular")
+	require.Contains(t, modes, "span_duration")
+	require.Contains(t, modes, "metrics_value")
+	require.Contains(t, modes, "metrics_duration")
+
+	rules, ok := meta.Custom["rules"].([]string)
+	require.True(t, ok)
+	require.Len(t, rules, 3)
+	avoid, ok := meta.Custom["avoid"].([]string)
+	require.True(t, ok)
+	require.Len(t, avoid, 2)
+}
+
+func TestSpansTable_IncludesMetadata(t *testing.T) {
+	table := spansTable(nil)
+	require.Equal(t, tempoSchemadsTableSpans, table.Name)
+	require.NotEmpty(t, table.Metadata.Description)
+	require.NotNil(t, table.Metadata.Custom["queryPatterns"])
+	require.NotNil(t, table.Metadata.Custom["rules"])
+}
+
 func TestSpansTable_MetricsHints(t *testing.T) {
 	hints := spansTableHints()
 	names := make([]string, len(hints))
@@ -59,10 +105,11 @@ func TestSpansFixedColumnsOperators(t *testing.T) {
 	require.Equal(t, traceqlDurationColumnOperators(), byName[tempoSpanColDuration].Operators)
 
 	require.Equal(t, schemas.ColumnTypeDatetime, byName[tempoSpanColTimestamp].Type)
-	require.Equal(t, "Sample time for TraceQL metrics SQL (flattened from series). Not used for span search.", byName[tempoSpanColTimestamp].Metadata.Description)
+	require.Contains(t, byName[tempoSpanColTimestamp].Metadata.Description, "FOR")
 	require.Nil(t, byName[tempoSpanColTimestamp].Operators)
 	require.Equal(t, schemas.ColumnTypeFloat64, byName[tempoSpanColValue].Type)
-	require.Equal(t, "Metric sample value for TraceQL metrics SQL (rate, count_over_time, etc.).", byName[tempoSpanColValue].Metadata.Description)
+	require.Contains(t, byName[tempoSpanColValue].Metadata.Description, "FOR")
+	require.Contains(t, byName[tempoSpanColDuration].Metadata.Description, "GROUP BY")
 	require.Nil(t, byName[tempoSpanColValue].Operators)
 }
 
