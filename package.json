@@ -47,6 +47,7 @@
     "uuid": "14.0.0"
   },
   "devDependencies": {
+    "ajv": "8.17.1",
     "@grafana/eslint-config": "9.0.0",
     "@grafana/plugin-e2e": "3.7.0",
     "@grafana/tsconfig": "2.0.1",
