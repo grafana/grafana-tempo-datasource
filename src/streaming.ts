@@ -1,7 +1,6 @@
 import { capitalize } from 'lodash';
 import { map, type Observable, scan, takeWhile } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
-
 import {
   type DataFrame,
   dataFrameFromJSON,
