@@ -664,7 +664,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
             // - We also set the 'length' property on the new frame, which is required by the frontend to know how many rows it contains.
             // - Finally, we replace the original nestedFrame in the array with the transformed newNestedFrame.
             // const mestedFrames = nested.values as DataFrameJSON[][];
-            // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+
             const mestedFrames = nested.values as DataFrameJSON[][];
 
             nested.values = mestedFrames.map((nestedFrameArray) => {

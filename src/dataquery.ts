@@ -41,7 +41,7 @@ export interface TempoQuery extends common.DataQuery {
   /**
    * Filters to be included in a PromQL query to select data for the service graph. Example: {client="app",service="app"}. Providing multiple values will produce union of results for each filter, using PromQL OR operator internally.
    */
-  serviceMapQuery?: (string | string[]);
+  serviceMapQuery?: string | string[];
   /**
    * Whether to use native histograms for service map queries
    */
@@ -73,7 +73,14 @@ export const defaultTempoQuery: Partial<TempoQuery> = {
   groupBy: [],
 };
 
-export type TempoQueryType = ('traceql' | 'traceqlSearch' | 'serviceMap' | 'upload' | 'nativeSearch' | 'traceId' | 'clear');
+export type TempoQueryType =
+  | 'traceql'
+  | 'traceqlSearch'
+  | 'serviceMap'
+  | 'upload'
+  | 'nativeSearch'
+  | 'traceId'
+  | 'clear';
 
 export enum MetricsQueryType {
   Instant = 'instant',
@@ -136,7 +143,7 @@ export interface TraceqlFilter {
   /**
    * The value for the search filter
    */
-  value?: (string | string[]);
+  value?: string | string[];
   /**
    * The type of the value, used for example to check whether we need to wrap the value in quotes when generating the query
    */

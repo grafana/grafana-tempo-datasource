@@ -17,11 +17,7 @@
       "name": "Grafana Labs",
       "url": "https://grafana.com"
     },
-    "keywords": [
-      "tempo",
-      "datasource",
-      "tracing"
-    ],
+    "keywords": ["tempo", "datasource", "tracing"],
     "logos": {
       "small": "img/tempo_logo.svg",
       "large": "img/tempo_logo.svg"

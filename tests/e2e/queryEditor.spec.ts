@@ -17,13 +17,11 @@ const DYNAMIC_FROM_ISO = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 // shapes so tests work across versions until @grafana/plugin-e2e ships a fix
 // and this repo upgrades.
 function getQueryEditorRow(page: Page, refId: string): Locator {
-  return page
-    .locator('[data-testid="data-testid Query editor row"], [aria-label="Query editor row"]')
-    .filter({
-      has: page.locator(
-        `[data-testid="data-testid Query editor row title ${refId}"], [aria-label="Query editor row title ${refId}"]`
-      ),
-    });
+  return page.locator('[data-testid="data-testid Query editor row"], [aria-label="Query editor row"]').filter({
+    has: page.locator(
+      `[data-testid="data-testid Query editor row title ${refId}"], [aria-label="Query editor row title ${refId}"]`
+    ),
+  });
 }
 
 // Builds an Explore URL with a Tempo query pre-encoded in the panes parameter.
@@ -67,20 +65,16 @@ test.describe('Query editor', () => {
   });
 
   test.describe('rendering', () => {
-    test(
-      'smoke: renders TraceQL query type tabs',
-      { tag: '@plugins' },
-      async ({ page }) => {
-        const queryRow = getQueryEditorRow(page, 'A');
-        // The Tempo query editor exposes a RadioButtonGroup with three modes.
-        // The "Import trace" button next to the radios opens a modal for
-        // uploading a trace JSON; it is not its own query type.
-        await expect(queryRow.getByRole('radio', { name: 'Search', exact: true })).toBeVisible({ timeout: 30_000 });
-        await expect(queryRow.getByRole('radio', { name: 'TraceQL', exact: true })).toBeVisible();
-        await expect(queryRow.getByRole('radio', { name: 'Service Graph', exact: true })).toBeVisible();
-        await expect(queryRow.getByRole('button', { name: 'Import trace' })).toBeVisible();
-      }
-    );
+    test('smoke: renders TraceQL query type tabs', { tag: '@plugins' }, async ({ page }) => {
+      const queryRow = getQueryEditorRow(page, 'A');
+      // The Tempo query editor exposes a RadioButtonGroup with three modes.
+      // The "Import trace" button next to the radios opens a modal for
+      // uploading a trace JSON; it is not its own query type.
+      await expect(queryRow.getByRole('radio', { name: 'Search', exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(queryRow.getByRole('radio', { name: 'TraceQL', exact: true })).toBeVisible();
+      await expect(queryRow.getByRole('radio', { name: 'Service Graph', exact: true })).toBeVisible();
+      await expect(queryRow.getByRole('button', { name: 'Import trace' })).toBeVisible();
+    });
 
     test('Search mode shows TraceQL filter controls', async ({ page }) => {
       const queryRow = getQueryEditorRow(page, 'A');
@@ -135,12 +129,9 @@ test.describe('Query editor', () => {
       // limit, table format, streaming) in its accessible name. Asserting on
       // the summary string is more robust than asserting on the labelled
       // inputs that only render when the panel is expanded.
-      await expect(
-        queryRow.getByRole('button', { name: /Search Options.*Limit:.*Table Format:/ })
-      ).toBeVisible();
+      await expect(queryRow.getByRole('button', { name: /Search Options.*Limit:.*Table Format:/ })).toBeVisible();
     });
   });
-
 });
 
 // These tests use real trace data continuously emitted by the TNS demo apps
@@ -171,9 +162,7 @@ test.describe('Query editor with live trace data', () => {
           return false;
         }
         const b = await r.json().catch(() => null);
-        return Object.values(b?.results ?? {}).some(
-          (v: any) => Array.isArray(v?.frames)
-        );
+        return Object.values(b?.results ?? {}).some((v: any) => Array.isArray(v?.frames));
       });
       await page.goto(exploreUrl('serviceMap'));
       const response = await responsePromise;

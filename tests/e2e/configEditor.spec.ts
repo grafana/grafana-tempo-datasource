@@ -35,33 +35,32 @@ function getConnectionHeading(page: Page): Locator {
 
 test.describe('Config editor', () => {
   test.describe('rendering', () => {
-    test(
-      'smoke: should render config editor',
-      { tag: '@plugins' },
-      async ({ createDataSourceConfigPage, page }) => {
-        await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+    test('smoke: should render config editor', { tag: '@plugins' }, async ({ createDataSourceConfigPage, page }) => {
+      await createDataSourceConfigPage({ type: PLUGIN_TYPE });
 
-        // Grafana <=13.0: "Type: Tempo" subtitle in the page header.
-        // Grafana >=13.1: subtitle removed (grafana/grafana#123966).
-        // Fall back to the Connection heading so this also serves as the
-        // page-load wait on builds where the type label is gone.
-        await expect(
-          page
-            .getByText('Type: Tempo', { exact: true })
-            .or(page.getByText(/^Type\s*Tempo$/))
-            .or(getConnectionHeading(page))
-            .first()
-        ).toBeVisible({ timeout: 30_000 });
-        await expect(getConnectionHeading(page)).toBeVisible();
-        await expect(getDataSourceConnectionUrlInput(page)).toBeVisible();
-        // Grafana >=13.1 replaced the #basic-settings-name input with an inline
-        // editable heading. Match both shapes so the test works across versions.
-        // .first() avoids a strict-mode violation on builds that render both.
-        await expect(
-          page.locator('#basic-settings-name').or(page.getByRole('button', { name: 'Edit title' })).first()
-        ).toBeVisible();
-      }
-    );
+      // Grafana <=13.0: "Type: Tempo" subtitle in the page header.
+      // Grafana >=13.1: subtitle removed (grafana/grafana#123966).
+      // Fall back to the Connection heading so this also serves as the
+      // page-load wait on builds where the type label is gone.
+      await expect(
+        page
+          .getByText('Type: Tempo', { exact: true })
+          .or(page.getByText(/^Type\s*Tempo$/))
+          .or(getConnectionHeading(page))
+          .first()
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(getConnectionHeading(page)).toBeVisible();
+      await expect(getDataSourceConnectionUrlInput(page)).toBeVisible();
+      // Grafana >=13.1 replaced the #basic-settings-name input with an inline
+      // editable heading. Match both shapes so the test works across versions.
+      // .first() avoids a strict-mode violation on builds that render both.
+      await expect(
+        page
+          .locator('#basic-settings-name')
+          .or(page.getByRole('button', { name: 'Edit title' }))
+          .first()
+      ).toBeVisible();
+    });
 
     test('should render Authentication section', async ({ createDataSourceConfigPage, page }) => {
       await createDataSourceConfigPage({ type: PLUGIN_TYPE });
