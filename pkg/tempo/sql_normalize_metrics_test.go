@@ -66,7 +66,7 @@ func TestNormalizeGrafanaSQLRequest_MetricsQuery(t *testing.T) {
 	ds := &DataSource{}
 	sq := schemadsQuery{
 		Query: schemas.Query{
-			Table:      tempoSchemadsTableSpans,
+			Table:      tempoSchemadsTableSpanMetrics,
 			GrafanaSql: true,
 			Filters: []schemas.ColumnFilter{{
 				Name: "resource.service.name",
@@ -115,7 +115,7 @@ func TestNormalizeGrafanaSQLRequest_MetricsStepAndInstant(t *testing.T) {
 	ds := &DataSource{}
 	sq := schemadsQuery{
 		Query: schemas.Query{
-			Table:           tempoSchemadsTableSpans,
+			Table:           tempoSchemadsTableSpanMetrics,
 			GrafanaSql:      true,
 			TableHintValues: map[string]string{"STEP": "30s", "INSTANT": ""},
 		},
@@ -186,6 +186,57 @@ func TestNormalizeGrafanaSQLRequest_MetricsStillSpanSearchWithoutAggregation(t *
 	require.Equal(t, int64(50), *model.Limit)
 }
 
+func TestNormalizeGrafanaSQLRequest_SpansRejectsAggregation(t *testing.T) {
+	ds := &DataSource{}
+	sq := schemadsQuery{
+		Query: schemas.Query{
+			Table:      tempoSchemadsTableSpans,
+			GrafanaSql: true,
+		},
+		Aggregation: &aggregationHint{Function: "COUNT"},
+	}
+	raw, err := json.Marshal(sq)
+	require.NoError(t, err)
+
+	req := &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{
+			GrafanaConfig: config.NewGrafanaCfg(map[string]string{
+				featuretoggles.EnabledFeatures: "dsAbstractionApp",
+			}),
+		},
+		Queries: []backend.DataQuery{{RefID: "A", JSON: raw}},
+	}
+
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	require.Contains(t, errs["A"].Error(), tempoSchemadsTableSpanMetrics)
+	require.Nil(t, metricsRefIDs)
+	require.Empty(t, out.Queries)
+}
+
+func TestNormalizeGrafanaSQLRequest_SpanMetricsRequiresAggregation(t *testing.T) {
+	ds := &DataSource{}
+	sq := schemas.Query{
+		Table:      tempoSchemadsTableSpanMetrics,
+		GrafanaSql: true,
+	}
+	raw, err := json.Marshal(sq)
+	require.NoError(t, err)
+
+	req := &backend.QueryDataRequest{
+		PluginContext: backend.PluginContext{
+			GrafanaConfig: config.NewGrafanaCfg(map[string]string{
+				featuretoggles.EnabledFeatures: "dsAbstractionApp",
+			}),
+		},
+		Queries: []backend.DataQuery{{RefID: "A", JSON: raw}},
+	}
+
+	out, errs, metricsRefIDs := ds.normalizeGrafanaSQLRequest(context.Background(), req)
+	require.Contains(t, errs["A"].Error(), "requires aggregation")
+	require.Nil(t, metricsRefIDs)
+	require.Empty(t, out.Queries)
+}
+
 // Multi-query panels can mix span-search SQL, metrics SQL, and non-SQL queries in one request.
 // metricsRefIDs must list only refIDs that need response flattening.
 func TestNormalizeGrafanaSQLRequest_MixedSpanSearchAndMetrics(t *testing.T) {
@@ -211,7 +262,7 @@ func TestNormalizeGrafanaSQLRequest_MixedSpanSearchAndMetrics(t *testing.T) {
 
 	metricsRaw, err := json.Marshal(schemadsQuery{
 		Query: schemas.Query{
-			Table:      tempoSchemadsTableSpans,
+			Table:      tempoSchemadsTableSpanMetrics,
 			GrafanaSql: true,
 		},
 		Aggregation: &aggregationHint{Function: "COUNT"},

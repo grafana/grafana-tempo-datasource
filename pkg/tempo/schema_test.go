@@ -10,12 +10,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func columnNames(cols []schemas.Column) []string {
+	names := make([]string, len(cols))
+	for i, c := range cols {
+		names[i] = c.Name
+	}
+	return names
+}
+
 func TestGlobalColumnValuesErrors(t *testing.T) {
-	errs := globalColumnValuesErrors([]string{tempoSpanColTraceIDHidden, "resource.service.name"}, "upstream failed")
+	noTag := tableFixedColumnNamesNoTagValues(spansFixedColumns())
+	errs := globalColumnValuesErrors([]string{tempoSpanColTraceIDHidden, "resource.service.name"}, noTag, "upstream failed")
 	require.Len(t, errs, 1)
 	require.Equal(t, "upstream failed", errs["resource.service.name"])
 
-	errsOnlyFixed := globalColumnValuesErrors([]string{tempoSpanColSpanID}, "no ds")
+	errsOnlyFixed := globalColumnValuesErrors([]string{tempoSpanColSpanID}, noTag, "no ds")
 	require.Len(t, errsOnlyFixed, 1)
 	require.Equal(t, "no ds", errsOnlyFixed[""])
 }
@@ -33,12 +42,11 @@ func TestTempoMetricsCapabilities_AggregateFunctions(t *testing.T) {
 
 func TestSpansTableMetadata_ConciseCustom(t *testing.T) {
 	meta := spansTableMetadata()
-	require.Contains(t, meta.Description, "GROUP BY")
-	require.NotContains(t, meta.Custom, "examples")
+	require.Contains(t, meta.Description, "span_metrics")
 
 	patterns, ok := meta.Custom["queryPatterns"].([]map[string]string)
 	require.True(t, ok)
-	require.Len(t, patterns, 4)
+	require.Len(t, patterns, 2)
 	modes := make([]string, len(patterns))
 	for i, p := range patterns {
 		modes[i] = p["mode"]
@@ -47,15 +55,23 @@ func TestSpansTableMetadata_ConciseCustom(t *testing.T) {
 	}
 	require.Contains(t, modes, "span_tabular")
 	require.Contains(t, modes, "span_duration")
-	require.Contains(t, modes, "metrics_value")
-	require.Contains(t, modes, "metrics_duration")
+}
 
-	rules, ok := meta.Custom["rules"].([]string)
+func TestSpanMetricsTableMetadata_ConciseCustom(t *testing.T) {
+	meta := spanMetricsTableMetadata()
+	require.Contains(t, meta.Description, "FOR")
+
+	patterns, ok := meta.Custom["queryPatterns"].([]map[string]string)
 	require.True(t, ok)
-	require.Len(t, rules, 3)
-	avoid, ok := meta.Custom["avoid"].([]string)
-	require.True(t, ok)
-	require.Len(t, avoid, 2)
+	require.Len(t, patterns, 3)
+	modes := make([]string, len(patterns))
+	for i, p := range patterns {
+		modes[i] = p["mode"]
+		require.Contains(t, p["sql"], "span_metrics")
+	}
+	require.Contains(t, modes, "metrics_count")
+	require.Contains(t, modes, "metrics_rate")
+	require.Contains(t, modes, "metrics_duration")
 }
 
 func TestSpansTable_IncludesMetadata(t *testing.T) {
@@ -63,11 +79,34 @@ func TestSpansTable_IncludesMetadata(t *testing.T) {
 	require.Equal(t, tempoSchemadsTableSpans, table.Name)
 	require.NotEmpty(t, table.Metadata.Description)
 	require.NotNil(t, table.Metadata.Custom["queryPatterns"])
-	require.NotNil(t, table.Metadata.Custom["rules"])
+	require.Empty(t, table.TableHints)
 }
 
-func TestSpansTable_MetricsHints(t *testing.T) {
-	hints := spansTableHints()
+func TestSpansTable_ExcludesMetricsColumns(t *testing.T) {
+	names := columnNames(spansTableColumns(nil))
+	require.NotContains(t, names, "timestamp")
+	require.NotContains(t, names, "value")
+}
+
+func TestSpanMetricsTable_HasMetricsShape(t *testing.T) {
+	table := spanMetricsTable(nil)
+	require.Equal(t, tempoSchemadsTableSpanMetrics, table.Name)
+	require.NotEmpty(t, table.TableHints)
+	names := columnNames(table.Columns)
+	require.Contains(t, names, "timestamp")
+	require.Contains(t, names, "value")
+	require.Contains(t, names, "traceIdHidden")
+	require.Contains(t, names, "spanID")
+	require.NotContains(t, names, "time")
+}
+
+func TestSchema_ReturnsBothTables(t *testing.T) {
+	require.Equal(t, []string{tempoSchemadsTableSpans, tempoSchemadsTableSpanMetrics}, tempoSchemadsTables())
+	require.Len(t, tempoSchemadsTables(), 2)
+}
+
+func TestSpanMetricsTable_MetricsHints(t *testing.T) {
+	hints := spanMetricsTableHints()
 	names := make([]string, len(hints))
 	for i, h := range hints {
 		names[i] = h.Name
@@ -103,56 +142,68 @@ func TestSpansFixedColumnsOperators(t *testing.T) {
 	require.Equal(t, traceqlIdentifierColumnOperators(), byName[tempoSpanColSpanID].Operators)
 	require.Equal(t, traceqlStringColumnOperators(), byName[tempoSpanColName].Operators)
 	require.Equal(t, traceqlDurationColumnOperators(), byName[tempoSpanColDuration].Operators)
+}
+
+func TestSpanMetricsFixedColumnsOperators(t *testing.T) {
+	cols := spanMetricsFixedColumns()
+	byName := make(map[string]schemas.Column, len(cols))
+	for _, c := range cols {
+		byName[c.Name] = c
+	}
 
 	require.Equal(t, schemas.ColumnTypeDatetime, byName[tempoSpanColTimestamp].Type)
-	require.Contains(t, byName[tempoSpanColTimestamp].Metadata.Description, "FOR")
 	require.Nil(t, byName[tempoSpanColTimestamp].Operators)
 	require.Equal(t, schemas.ColumnTypeFloat64, byName[tempoSpanColValue].Type)
-	require.Contains(t, byName[tempoSpanColValue].Metadata.Description, "FOR")
-	require.Contains(t, byName[tempoSpanColDuration].Metadata.Description, "GROUP BY")
+	require.Contains(t, byName[tempoSpanColValue].Metadata.Description, "output only")
 	require.Nil(t, byName[tempoSpanColValue].Operators)
 }
 
 func TestUnsupportedSchemadsTableError(t *testing.T) {
-	require.Equal(t, `unsupported table "traces" (only "spans" is supported)`, unsupportedSchemadsTableError("traces"))
+	require.Equal(t, `unsupported table "traces" (supported: "spans", "span_metrics")`, unsupportedSchemadsTableError("traces"))
 }
 
 func TestGlobalColumnValuesErrors_UnsupportedTable(t *testing.T) {
 	msg := unsupportedSchemadsTableError("traces")
-	errs := globalColumnValuesErrors([]string{tempoSpanColTraceIDHidden, "name"}, msg)
+	noTag := tableFixedColumnNamesNoTagValues(spansFixedColumns())
+	errs := globalColumnValuesErrors([]string{tempoSpanColTraceIDHidden, "name"}, noTag, msg)
 	require.Len(t, errs, 1)
 	require.Equal(t, msg, errs["name"])
 }
 
-func TestSpansTableColumns_IncludesMetricsAndDropsDynamicCollisions(t *testing.T) {
+func TestSpansTableColumns_DropsDynamicCollisions(t *testing.T) {
 	got := spansTableColumns([]schemas.Column{
-		{Name: "value", Metadata: schemas.Metadata{Description: "tag must lose to metrics column"}},
 		{Name: "name", Metadata: schemas.Metadata{Description: "dup from tags"}},
 		{Name: "duration"},
 		{Name: "resource.svc"},
 	})
-	names := make([]string, len(got))
-	for i, c := range got {
-		names[i] = c.Name
-	}
-	require.Contains(t, names, "timestamp")
-	require.Contains(t, names, "value")
+	names := columnNames(got)
 	require.Contains(t, names, "name")
 	require.Contains(t, names, "duration")
 	require.Contains(t, names, "resource.svc")
-	var valueCols, nameCols int
+	require.NotContains(t, names, "value")
+	require.NotContains(t, names, "timestamp")
+	var nameCols int
 	for _, c := range got {
-		switch c.Name {
-		case "value":
-			valueCols++
-			require.NotEqual(t, "tag must lose to metrics column", c.Metadata.Description)
-		case "name":
+		if c.Name == "name" {
 			nameCols++
 			require.NotEqual(t, "dup from tags", c.Metadata.Description)
 		}
 	}
-	require.Equal(t, 1, valueCols)
 	require.Equal(t, 1, nameCols)
+}
+
+func TestSpanMetricsTableColumns_DropsDynamicValueCollision(t *testing.T) {
+	got := spanMetricsTableColumns([]schemas.Column{
+		{Name: "value", Metadata: schemas.Metadata{Description: "tag must lose to metrics column"}},
+	})
+	var valueCols int
+	for _, c := range got {
+		if c.Name == "value" {
+			valueCols++
+			require.NotEqual(t, "tag must lose to metrics column", c.Metadata.Description)
+		}
+	}
+	require.Equal(t, 1, valueCols)
 }
 
 func TestFlattenTempoSearchTagScopesToColumnNames(t *testing.T) {

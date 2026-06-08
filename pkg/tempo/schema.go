@@ -11,8 +11,12 @@ import (
 	schemas "github.com/grafana/schemads"
 )
 
+// Grafana SQL schemads tables (see sql.go for query routing):
+//   spans        — TraceQL span search rows; output column "time"
+//   span_metrics — TraceQL metrics time series; requires aggregation; output "timestamp"/"value"
 const (
-	tempoSchemadsTableSpans = "spans"
+	tempoSchemadsTableSpans       = "spans"
+	tempoSchemadsTableSpanMetrics = "span_metrics"
 
 	tempoSpanColTraceIDHidden = "traceIdHidden"
 	tempoSpanColTraceService  = "traceService"
@@ -24,6 +28,10 @@ const (
 	tempoSpanColTimestamp     = "timestamp"
 	tempoSpanColValue         = "value"
 )
+
+func tempoSchemadsTables() []string {
+	return []string{tempoSchemadsTableSpans, tempoSchemadsTableSpanMetrics}
+}
 
 // traceqlStringColumnOperators matches TraceQL attribute filters (=, !=, in, like/regex).
 // See https://grafana.com/docs/tempo/latest/traceql/construct-traceql-queries/
@@ -72,72 +80,83 @@ func (p *tempoSchemaProvider) dsInfo(ctx context.Context) (*DatasourceInfo, erro
 	return p.ds.getDSInfo(ctx, pc)
 }
 
-func spansFixedColumnNames() map[string]struct{} {
-	m := make(map[string]struct{})
-	for _, c := range spansFixedColumns() {
-		m[c.Name] = struct{}{}
-	}
-	return m
+func schemaBoolPtr(b bool) *bool {
+	return &b
 }
 
-// spansFixedColumns returns span-search columns plus metrics result columns (timestamp, value)
-// for the spans table. TraceQL metrics: https://grafana.com/docs/tempo/latest/metrics-from-traces/metrics-queries/functions/
-func spansFixedColumns() []schemas.Column {
+// spanFilterColumns returns WHERE / GROUP BY columns shared by spans and span_metrics.
+func spanFilterColumns() []schemas.Column {
 	falsePtr := schemaBoolPtr(false)
 	truePtr := schemaBoolPtr(true)
 	traceqlStringOps := traceqlStringColumnOperators()
 	traceqlIDOps := traceqlIdentifierColumnOperators()
 	traceqlDurOps := traceqlDurationColumnOperators()
-	return append([]schemas.Column{
+	return []schemas.Column{
 		{
 			Name: tempoSpanColTraceIDHidden, Type: schemas.ColumnTypeString, Operators: traceqlIDOps,
-			Metadata: schemas.Metadata{Description: "Trace ID (TraceQL: trace:id). Used for drill-down links."}, SupportsValues: falsePtr,
+			Metadata: schemas.Metadata{Description: "Trace ID"}, SupportsValues: falsePtr,
 		},
 		{
 			Name: tempoSpanColTraceService, Type: schemas.ColumnTypeString, Operators: traceqlStringOps,
-			Metadata: schemas.Metadata{Description: "Root trace service (TraceQL: trace:rootService / rootServiceName)."}, SupportsValues: falsePtr,
+			Metadata: schemas.Metadata{Description: "Root trace service"}, SupportsValues: falsePtr,
 		},
 		{
 			Name: tempoSpanColTraceName, Type: schemas.ColumnTypeString, Operators: traceqlStringOps,
-			Metadata: schemas.Metadata{Description: "Root trace name (TraceQL: trace:rootName / rootName)."}, SupportsValues: falsePtr,
+			Metadata: schemas.Metadata{Description: "Root trace name"}, SupportsValues: falsePtr,
 		},
 		{
 			Name: tempoSpanColSpanID, Type: schemas.ColumnTypeString, Operators: traceqlIDOps,
-			Metadata: schemas.Metadata{Description: "Span ID (TraceQL: span:id)."}, SupportsValues: falsePtr,
-		},
-		{
-			// Span start time is not a TraceQL filter intrinsic; bound queries with the panel time range.
-			Name: tempoSpanColTime, Type: schemas.ColumnTypeDatetime, Operators: nil,
-			Metadata: schemas.Metadata{Description: "Span start time (display only in TraceQL). Metrics SQL: valid time axis with FOR (same as timestamp)."}, SupportsValues: falsePtr,
+			Metadata: schemas.Metadata{Description: "Span ID"}, SupportsValues: falsePtr,
 		},
 		{
 			Name: tempoSpanColName, Type: schemas.ColumnTypeString, Operators: traceqlStringOps,
-			Metadata: schemas.Metadata{Description: "Span name (TraceQL: name / span:name)."}, SupportsValues: truePtr,
+			Metadata: schemas.Metadata{Description: "Span name"}, SupportsValues: truePtr,
 		},
 		{
 			Name: tempoSpanColDuration, Type: schemas.ColumnTypeFloat64, Operators: traceqlDurOps,
-			Metadata: schemas.Metadata{Description: "Span duration (TraceQL: duration). Aggregate with GROUP BY; with FOR → *_over_time(span:duration), without FOR → engine aggregates span rows."}, SupportsValues: truePtr,
+			Metadata: schemas.Metadata{Description: "Span duration"}, SupportsValues: truePtr,
 		},
-	}, []schemas.Column{
+	}
+}
+
+// spansOutputColumns returns span-row output columns (spans table only).
+func spansOutputColumns() []schemas.Column {
+	falsePtr := schemaBoolPtr(false)
+	return []schemas.Column{
+		{
+			Name: tempoSpanColTime, Type: schemas.ColumnTypeDatetime, Operators: nil,
+			Metadata: schemas.Metadata{Description: "Span start time"}, SupportsValues: falsePtr,
+		},
+	}
+}
+
+// spanMetricsResultColumns returns TraceQL metrics output columns (span_metrics table only).
+func spanMetricsResultColumns() []schemas.Column {
+	falsePtr := schemaBoolPtr(false)
+	return []schemas.Column{
 		{
 			Name: tempoSpanColTimestamp, Type: schemas.ColumnTypeDatetime,
-			Metadata: schemas.Metadata{Description: "Metrics sample time (with FOR only). Same role as time in metrics SQL."}, SupportsValues: falsePtr,
+			Metadata: schemas.Metadata{Description: "Metrics step time"}, SupportsValues: falsePtr,
 		},
 		{
 			Name: tempoSpanColValue, Type: schemas.ColumnTypeFloat64,
-			Metadata: schemas.Metadata{Description: "TraceQL metrics sample (requires FOR). Aggregate value with GROUP BY, not duration."}, SupportsValues: falsePtr,
+			Metadata: schemas.Metadata{Description: "Metric sample (output only)"}, SupportsValues: falsePtr,
 		},
-	}...)
+	}
 }
 
-func schemaBoolPtr(b bool) *bool {
-	return &b
+// spansFixedColumns returns all fixed columns for the spans table.
+func spansFixedColumns() []schemas.Column {
+	return append(spanFilterColumns(), spansOutputColumns()...)
 }
 
-// spansTableColumns merges spansFixedColumns and dynamic tag columns. Fixed names win over
-// dynamic tags (e.g. intrinsic "name" / "duration", or a tag named "value").
-func spansTableColumns(dynamic []schemas.Column) []schemas.Column {
-	fixed := spansFixedColumns()
+// spanMetricsFixedColumns returns all fixed columns for the span_metrics table.
+func spanMetricsFixedColumns() []schemas.Column {
+	return append(spanFilterColumns(), spanMetricsResultColumns()...)
+}
+
+// mergeTableColumns merges fixed and dynamic tag columns. Fixed names win over dynamic tags.
+func mergeTableColumns(fixed, dynamic []schemas.Column) []schemas.Column {
 	seen := make(map[string]struct{}, len(fixed)+len(dynamic))
 	out := make([]schemas.Column, 0, len(fixed)+len(dynamic))
 	for _, c := range fixed {
@@ -163,7 +182,14 @@ func spansTableColumns(dynamic []schemas.Column) []schemas.Column {
 	return out
 }
 
-// spansQueryPatterns: one example per mode (metadata.custom.queryPatterns). Modes: span_tabular | span_duration | metrics_value | metrics_duration.
+func spansTableColumns(dynamic []schemas.Column) []schemas.Column {
+	return mergeTableColumns(spansFixedColumns(), dynamic)
+}
+
+func spanMetricsTableColumns(dynamic []schemas.Column) []schemas.Column {
+	return mergeTableColumns(spanMetricsFixedColumns(), dynamic)
+}
+
 func spansQueryPatterns() []map[string]string {
 	return []map[string]string{
 		{
@@ -174,52 +200,68 @@ func spansQueryPatterns() []map[string]string {
 			"mode": "span_duration",
 			"sql":  "SELECT traceService, sum(duration) FROM `tempo::<uid>`.spans GROUP BY traceService LIMIT 15",
 		},
+	}
+}
+
+func spanMetricsQueryPatterns() []map[string]string {
+	return []map[string]string{
 		{
-			"mode": "metrics_value",
-			"sql":  "SELECT time, count(value) AS cnt FROM `tempo::<uid>`.spans FOR (rate('5m')) GROUP BY time LIMIT 15",
+			"mode": "metrics_count",
+			"sql":  "SELECT timestamp, count(value) AS cnt FROM `tempo::<uid>`.span_metrics FOR (step('30s')) GROUP BY timestamp LIMIT 15",
+		},
+		{
+			"mode": "metrics_rate",
+			"sql":  "SELECT timestamp, count(value) AS rps FROM `tempo::<uid>`.span_metrics FOR (rate(), step('30s')) GROUP BY timestamp LIMIT 15",
 		},
 		{
 			"mode": "metrics_duration",
-			"sql":  "SELECT time, sum(duration) FROM `tempo::<uid>`.spans FOR (rate('5m')) GROUP BY time LIMIT 15",
+			"sql":  "SELECT timestamp, sum(duration) FROM `tempo::<uid>`.span_metrics FOR (step('30s')) GROUP BY timestamp LIMIT 15",
 		},
 	}
 }
 
 func spansTableMetadata() schemas.Metadata {
 	return schemas.Metadata{
-		Description: "Span rows without FOR; TraceQL metrics with FOR (rate|step|instant|exemplars). SQL aggregates require GROUP BY. See custom.queryPatterns.",
+		Description: "TraceQL span search rows. Use span_metrics for time series.",
 		Custom: map[string]any{
 			"queryPatterns": spansQueryPatterns(),
-			"rules": []string{
-				"Aggregates need GROUP BY; metrics need FOR; use value (not duration) for rate/count_over_time",
-				"sum/avg(duration) without FOR: engine aggregates span rows; with FOR: TraceQL *_over_time",
-				"No aggregates in FOR (...); columnValues lists tags only (core fields often empty)",
-			},
-			"avoid": []string{
-				"sum(value) ... FOR (...) without GROUP BY → engine error",
-				"sum(value) without FOR → use duration or add FOR",
-			},
+		},
+	}
+}
+
+func spanMetricsTableMetadata() schemas.Metadata {
+	return schemas.Metadata{
+		Description: "TraceQL metrics time series. Requires aggregation and FOR.",
+		Custom: map[string]any{
+			"queryPatterns": spanMetricsQueryPatterns(),
 		},
 	}
 }
 
 func spansTable(dynamic []schemas.Column) schemas.Table {
 	return schemas.Table{
-		Name:       tempoSchemadsTableSpans,
-		Columns:    spansTableColumns(dynamic),
-		TableHints: spansTableHints(),
-		Metadata:   spansTableMetadata(),
+		Name:     tempoSchemadsTableSpans,
+		Columns:  spansTableColumns(dynamic),
+		Metadata: spansTableMetadata(),
 	}
 }
 
-// spansTableHints map SQL FOR (...) clauses to TraceQL metrics API options.
-// rate compiles to TraceQL | rate() (spans per second); range resolution uses step, not rate('5m').
-func spansTableHints() []schemas.TableHint {
+// spanMetricsTableHints map SQL FOR (...) clauses to TraceQL metrics API options.
+func spanMetricsTableHints() []schemas.TableHint {
 	return []schemas.TableHint{
-		{Name: "rate", Description: "TraceQL span rate (| rate()). Spans per second. Use step for resolution.", HasValue: true},
-		{Name: "step", Description: "Metrics query step/resolution, e.g. step('30s')", HasValue: true},
-		{Name: "instant", Description: "Run as instant TraceQL metrics query"},
-		{Name: "exemplars", Description: "Max exemplars for range metrics (0 = none)", HasValue: true},
+		{Name: "rate", Description: "Span rate (| rate())", HasValue: true},
+		{Name: "step", Description: "Query step, e.g. step('30s')", HasValue: true},
+		{Name: "instant", Description: "Instant metrics query"},
+		{Name: "exemplars", Description: "Max exemplars (0 = none)", HasValue: true},
+	}
+}
+
+func spanMetricsTable(dynamic []schemas.Column) schemas.Table {
+	return schemas.Table{
+		Name:       tempoSchemadsTableSpanMetrics,
+		Columns:    spanMetricsTableColumns(dynamic),
+		TableHints: spanMetricsTableHints(),
+		Metadata:   spanMetricsTableMetadata(),
 	}
 }
 
@@ -247,10 +289,12 @@ func (p *tempoSchemaProvider) Schema(ctx context.Context, _ *schemas.SchemaReque
 		p.logger.Warn("tempo schemads: failed to load tags for schema", "error", tagErr)
 		tagCols = nil
 	}
-	table := spansTable(tagCols)
 	resp := &schemas.SchemaResponse{
 		FullSchema: &schemas.Schema{
-			Tables:       []schemas.Table{table},
+			Tables: []schemas.Table{
+				spansTable(tagCols),
+				spanMetricsTable(tagCols),
+			},
 			Capabilities: tempoMetricsCapabilities,
 		},
 	}
@@ -264,69 +308,94 @@ func (p *tempoSchemaProvider) Schema(ctx context.Context, _ *schemas.SchemaReque
 func (p *tempoSchemaProvider) Tables(ctx context.Context, _ *schemas.TablesRequest) (*schemas.TablesResponse, error) {
 	_, err := p.dsInfo(ctx)
 	if err != nil {
-		return &schemas.TablesResponse{Errors: map[string]string{tempoSchemadsTableSpans: err.Error()}}, nil
+		errs := make(map[string]string, len(tempoSchemadsTables()))
+		for _, t := range tempoSchemadsTables() {
+			errs[t] = err.Error()
+		}
+		return &schemas.TablesResponse{Errors: errs}, nil
 	}
 	return &schemas.TablesResponse{
-		Tables:       []string{tempoSchemadsTableSpans},
+		Tables: tempoSchemadsTables(),
 		TableMetadata: map[string]schemas.Metadata{
-			tempoSchemadsTableSpans: spansTableMetadata(),
+			tempoSchemadsTableSpans:       spansTableMetadata(),
+			tempoSchemadsTableSpanMetrics: spanMetricsTableMetadata(),
 		},
 		Capabilities: tempoMetricsCapabilities,
 	}, nil
 }
 
+func isSupportedSchemadsTable(table string) bool {
+	return table == tempoSchemadsTableSpans || table == tempoSchemadsTableSpanMetrics
+}
+
+func schemadsColumnsForTable(table string, tagCols []schemas.Column) ([]schemas.Column, schemas.Metadata) {
+	switch table {
+	case tempoSchemadsTableSpans:
+		return spansTableColumns(tagCols), spansTableMetadata()
+	case tempoSchemadsTableSpanMetrics:
+		return spanMetricsTableColumns(tagCols), spanMetricsTableMetadata()
+	default:
+		return nil, schemas.Metadata{}
+	}
+}
+
 // Columns implements schemas.ColumnsHandler.
 func (p *tempoSchemaProvider) Columns(ctx context.Context, req *schemas.ColumnsRequest) (*schemas.ColumnsResponse, error) {
 	out := make(map[string][]schemas.Column, len(req.Tables))
-	var errs map[string]string
-	wantSpans := false
-	for _, t := range req.Tables {
-		if t == tempoSchemadsTableSpans {
-			wantSpans = true
+	tableMetadata := make(map[string]schemas.Metadata, len(req.Tables))
+	errs := make(map[string]string)
+
+	var supported []string
+	for _, table := range req.Tables {
+		if isSupportedSchemadsTable(table) {
+			supported = append(supported, table)
 			continue
 		}
-		if errs == nil {
-			errs = make(map[string]string)
-		}
-		errs[t] = unsupportedSchemadsTableError(t)
+		errs[table] = unsupportedSchemadsTableError(table)
 	}
-
-	if !wantSpans {
-		return &schemas.ColumnsResponse{Columns: out, Errors: errs}, nil
+	if len(supported) == 0 {
+		return &schemas.ColumnsResponse{Columns: out, Errors: errsOrNil(errs)}, nil
 	}
 
 	dsInfo, err := p.dsInfo(ctx)
 	if err != nil {
-		if errs == nil {
-			errs = make(map[string]string)
+		for _, table := range supported {
+			errs[table] = err.Error()
 		}
-		errs[tempoSchemadsTableSpans] = err.Error()
-		return &schemas.ColumnsResponse{Columns: out, Errors: errs}, nil
+		return &schemas.ColumnsResponse{Columns: out, Errors: errsOrNil(errs)}, nil
 	}
 
 	tagCols, tagErr := p.dynamicTagColumns(ctx, dsInfo)
 	if tagErr != nil {
 		p.logger.Warn("tempo schemads: failed to load tags for columns", "error", tagErr)
+		msg := fmt.Sprintf("attribute columns unavailable: %v", tagErr)
+		for _, table := range supported {
+			errs[table] = msg
+		}
 	}
 
-	out[tempoSchemadsTableSpans] = spansTableColumns(tagCols)
-	if tagErr != nil {
-		if errs == nil {
-			errs = make(map[string]string)
-		}
-		errs[tempoSchemadsTableSpans] = fmt.Sprintf("attribute columns unavailable: %v", tagErr)
+	for _, table := range supported {
+		cols, meta := schemadsColumnsForTable(table, tagCols)
+		out[table] = cols
+		tableMetadata[table] = meta
 	}
+
 	return &schemas.ColumnsResponse{
-		Columns: out,
-		TableMetadata: map[string]schemas.Metadata{
-			tempoSchemadsTableSpans: spansTableMetadata(),
-		},
-		Errors: errs,
+		Columns:       out,
+		TableMetadata: tableMetadata,
+		Errors:        errsOrNil(errs),
 	}, nil
 }
 
+func errsOrNil(errs map[string]string) map[string]string {
+	if len(errs) == 0 {
+		return nil
+	}
+	return errs
+}
+
 func unsupportedSchemadsTableError(table string) string {
-	return fmt.Sprintf("unsupported table %q (only %q is supported)", table, tempoSchemadsTableSpans)
+	return fmt.Sprintf("unsupported table %q (supported: %q, %q)", table, tempoSchemadsTableSpans, tempoSchemadsTableSpanMetrics)
 }
 
 // ColumnValues implements schemas.ColumnValuesHandler.
@@ -338,10 +407,17 @@ func (p *tempoSchemaProvider) ColumnValues(ctx context.Context, req *schemas.Col
 	if len(req.Columns) == 0 {
 		return &schemas.ColumnValuesResponse{ColumnValues: out}, nil
 	}
-	if req.Table != tempoSchemadsTableSpans {
+
+	var noTagValues map[string]struct{}
+	switch req.Table {
+	case tempoSchemadsTableSpans:
+		noTagValues = tableFixedColumnNamesNoTagValues(spansFixedColumns())
+	case tempoSchemadsTableSpanMetrics:
+		noTagValues = tableFixedColumnNamesNoTagValues(spanMetricsFixedColumns())
+	default:
 		return &schemas.ColumnValuesResponse{
 			ColumnValues: out,
-			Errors:       globalColumnValuesErrors(req.Columns, unsupportedSchemadsTableError(req.Table)),
+			Errors:       globalColumnValuesErrors(req.Columns, nil, unsupportedSchemadsTableError(req.Table)),
 		}, nil
 	}
 
@@ -349,7 +425,7 @@ func (p *tempoSchemaProvider) ColumnValues(ctx context.Context, req *schemas.Col
 	if err != nil {
 		return &schemas.ColumnValuesResponse{
 			ColumnValues: out,
-			Errors:       globalColumnValuesErrors(req.Columns, err.Error()),
+			Errors:       globalColumnValuesErrors(req.Columns, noTagValues, err.Error()),
 		}, nil
 	}
 
@@ -357,12 +433,11 @@ func (p *tempoSchemaProvider) ColumnValues(ctx context.Context, req *schemas.Col
 	if err != nil {
 		return &schemas.ColumnValuesResponse{
 			ColumnValues: out,
-			Errors:       globalColumnValuesErrors(req.Columns, err.Error()),
+			Errors:       globalColumnValuesErrors(req.Columns, noTagValues, err.Error()),
 		}, nil
 	}
 
 	tagCols := tagColumnNamesSetFromScopes(scopes)
-	noTagValues := spansFixedColumnNamesNoTagValues()
 	errs := make(map[string]string)
 	for _, col := range req.Columns {
 		if _, skip := noTagValues[col]; skip {
@@ -385,12 +460,9 @@ func (p *tempoSchemaProvider) ColumnValues(ctx context.Context, req *schemas.Col
 	return &schemas.ColumnValuesResponse{ColumnValues: out, Errors: errs}, nil
 }
 
-// spansFixedColumnNamesNoTagValues is the set of fixed span columns that never use the
-// Tempo tag-values API. It is derived from spansFixedColumns (SupportsValues == false)
-// so metadata and ColumnValues stay aligned.
-func spansFixedColumnNamesNoTagValues() map[string]struct{} {
+func tableFixedColumnNamesNoTagValues(cols []schemas.Column) map[string]struct{} {
 	m := make(map[string]struct{})
-	for _, c := range spansFixedColumns() {
+	for _, c := range cols {
 		if c.SupportsValues != nil && *c.SupportsValues {
 			continue
 		}
@@ -400,15 +472,15 @@ func spansFixedColumnNamesNoTagValues() map[string]struct{} {
 }
 
 // globalColumnValuesErrors attaches msg to each requested column that can use tag-values,
-// except fixed columns that never have that API (see spansFixedColumnNamesNoTagValues).
-// If there are no such columns, msg is returned under the empty key for schemads consumers
-// that expect a single global error.
-func globalColumnValuesErrors(columns []string, msg string) map[string]string {
-	noTag := spansFixedColumnNamesNoTagValues()
+// except fixed columns that never have that API. If there are no such columns, msg is
+// returned under the empty key for schemads consumers that expect a single global error.
+func globalColumnValuesErrors(columns []string, noTagValues map[string]struct{}, msg string) map[string]string {
 	errs := make(map[string]string)
 	for _, col := range columns {
-		if _, skip := noTag[col]; skip {
-			continue
+		if noTagValues != nil {
+			if _, skip := noTagValues[col]; skip {
+				continue
+			}
 		}
 		errs[col] = msg
 	}
@@ -423,19 +495,15 @@ func (p *tempoSchemaProvider) dynamicTagColumns(ctx context.Context, dsInfo *Dat
 	if err != nil {
 		return nil, err
 	}
-	fixedNames := spansFixedColumnNames()
 	names := flattenTempoSearchTagScopesToColumnNames(scopes)
 	truePtr := schemaBoolPtr(true)
 	cols := make([]schemas.Column, 0, len(names))
 	for _, n := range names {
-		if _, isFixed := fixedNames[n]; isFixed {
-			continue
-		}
 		cols = append(cols, schemas.Column{
 			Name:           n,
 			Type:           schemas.ColumnTypeString,
 			Operators:      traceqlStringColumnOperators(),
-			Metadata:       schemas.Metadata{Description: "Attribute tag from Tempo."},
+			Metadata:       schemas.Metadata{Description: "Tempo tag"},
 			SupportsValues: truePtr,
 		})
 	}

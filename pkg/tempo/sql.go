@@ -71,11 +71,6 @@ func (ds *DataSource) normalizeGrafanaSQLRequest(ctx context.Context, req *backe
 			continue
 		}
 
-		if table != tempoSchemadsTableSpans {
-			sqlErrors[q.RefID] = fmt.Errorf("tempo grafana sql: unsupported table %q (only %q is supported)", table, tempoSchemadsTableSpans)
-			continue
-		}
-
 		model := dataquery.NewTempoQuery()
 		model.RefId = q.RefID
 		qt := string(dataquery.TempoQueryTypeTraceql)
@@ -85,7 +80,32 @@ func (ds *DataSource) normalizeGrafanaSQLRequest(ctx context.Context, req *backe
 
 		var traceQL string
 		var err error
-		if sq.Aggregation != nil {
+		// Table selects execution path; dsabstraction must emit span_metrics for SQL with FOR (...).
+		switch table {
+		case tempoSchemadsTableSpans:
+			if sq.Aggregation != nil {
+				sqlErrors[q.RefID] = fmt.Errorf(
+					"tempo grafana sql: aggregation on %q is not supported; use %q for TraceQL metrics",
+					tempoSchemadsTableSpans, tempoSchemadsTableSpanMetrics,
+				)
+				continue
+			}
+			traceQL, err = traceQLFromSchemadsFilters(sq.Filters)
+			if err != nil {
+				sqlErrors[q.RefID] = err
+				continue
+			}
+			if sq.Limit != nil && *sq.Limit > 0 {
+				model.Limit = sq.Limit
+			}
+		case tempoSchemadsTableSpanMetrics:
+			if sq.Aggregation == nil {
+				sqlErrors[q.RefID] = fmt.Errorf(
+					"tempo grafana sql: %q requires aggregation for TraceQL metrics",
+					tempoSchemadsTableSpanMetrics,
+				)
+				continue
+			}
 			traceQL, err = buildTraceQLMetricsQuery(sq)
 			if err != nil {
 				sqlErrors[q.RefID] = err
@@ -96,15 +116,9 @@ func (ds *DataSource) normalizeGrafanaSQLRequest(ctx context.Context, req *backe
 				continue
 			}
 			metricsRefIDs[q.RefID] = struct{}{}
-		} else {
-			traceQL, err = traceQLFromSchemadsFilters(sq.Filters)
-			if err != nil {
-				sqlErrors[q.RefID] = err
-				continue
-			}
-			if sq.Limit != nil && *sq.Limit > 0 {
-				model.Limit = sq.Limit
-			}
+		default:
+			sqlErrors[q.RefID] = fmt.Errorf("tempo grafana sql: %s", unsupportedSchemadsTableError(table))
+			continue
 		}
 		model.Query = &traceQL
 
@@ -196,8 +210,9 @@ func traceQLMetricsGroupBy(agg *aggregationHint) (string, error) {
 	}
 	var labels []string
 	for _, col := range agg.GroupBy {
+		// SQL result columns (time/timestamp/value) are not TraceQL group-by attributes.
 		switch col {
-		case "timestamp", "value":
+		case "timestamp", "value", "time":
 			continue
 		}
 		sel, err := traceqlSelectorFromSpansColumn(col)
@@ -289,6 +304,10 @@ func traceqlSelectorFromSpansColumn(col string) (string, error) {
 		return "span:id", nil
 	case tempoSpanColTime:
 		return "", fmt.Errorf("tempo grafana sql: filtering on column %q is not supported; use the query time range", col)
+	case tempoSpanColTimestamp:
+		return "", fmt.Errorf("tempo grafana sql: filtering on column %q is not supported; metrics use the query time range", col)
+	case tempoSpanColValue:
+		return "", fmt.Errorf("tempo grafana sql: column %q is a SQL metric result column, not a TraceQL filter", col)
 	case tempoSpanColName:
 		return "name", nil
 	case tempoSpanColDuration:

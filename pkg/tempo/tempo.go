@@ -157,6 +157,7 @@ func (ds *DataSource) QueryData(ctx context.Context, req *backend.QueryDataReque
 		}
 	}
 
+	// span_metrics: multi-frame TraceQL metrics → single tabular frame for schemads consumers.
 	for refID := range metricsRefIDs {
 		dr, ok := response.Responses[refID]
 		if !ok || dr.Error != nil {
