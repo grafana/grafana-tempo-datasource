@@ -43,6 +43,8 @@ func TestTempoMetricsCapabilities_AggregateFunctions(t *testing.T) {
 func TestSpansTableMetadata_ConciseCustom(t *testing.T) {
 	meta := spansTableMetadata()
 	require.Contains(t, meta.Description, "span_metrics")
+	require.Contains(t, meta.Description, "GROUP BY")
+	require.Contains(t, meta.Description, "not pushed to Tempo")
 
 	patterns, ok := meta.Custom["queryPatterns"].([]map[string]string)
 	require.True(t, ok)
@@ -60,6 +62,7 @@ func TestSpansTableMetadata_ConciseCustom(t *testing.T) {
 func TestSpanMetricsTableMetadata_ConciseCustom(t *testing.T) {
 	meta := spanMetricsTableMetadata()
 	require.Contains(t, meta.Description, "FOR")
+	require.Equal(t, "3h", meta.Custom["maxTimeRange"])
 
 	patterns, ok := meta.Custom["queryPatterns"].([]map[string]string)
 	require.True(t, ok)
@@ -92,12 +95,18 @@ func TestSpanMetricsTable_HasMetricsShape(t *testing.T) {
 	table := spanMetricsTable(nil)
 	require.Equal(t, tempoSchemadsTableSpanMetrics, table.Name)
 	require.NotEmpty(t, table.TableHints)
+	require.Equal(t, tempoMetricsCapabilities, table.Capabilities)
 	names := columnNames(table.Columns)
 	require.Contains(t, names, "timestamp")
 	require.Contains(t, names, "value")
 	require.Contains(t, names, "traceIdHidden")
 	require.Contains(t, names, "spanID")
 	require.NotContains(t, names, "time")
+}
+
+func TestSpansTable_HasNoCapabilities(t *testing.T) {
+	table := spansTable(nil)
+	require.Nil(t, table.Capabilities)
 }
 
 func TestSchema_ReturnsBothTables(t *testing.T) {
@@ -115,6 +124,17 @@ func TestSpanMetricsTable_MetricsHints(t *testing.T) {
 	require.Contains(t, names, "step")
 	require.Contains(t, names, "instant")
 	require.Contains(t, names, "exemplars")
+
+	var rateHint *schemas.TableHint
+	for i := range hints {
+		if hints[i].Name == "rate" {
+			rateHint = &hints[i]
+			break
+		}
+	}
+	require.NotNil(t, rateHint)
+	require.Contains(t, rateHint.Description, "FOR (rate())")
+	require.Contains(t, rateHint.Description, "Unlike Loki")
 }
 
 func TestSpansFixedColumnsSupportsValues(t *testing.T) {

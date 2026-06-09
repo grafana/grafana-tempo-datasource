@@ -222,7 +222,7 @@ func spanMetricsQueryPatterns() []map[string]string {
 
 func spansTableMetadata() schemas.Metadata {
 	return schemas.Metadata{
-		Description: "TraceQL span search rows. Use span_metrics for time series.",
+		Description: "TraceQL span search rows. GROUP BY aggregates run in the Grafana SQL engine (not pushed to Tempo). Use span_metrics for time series.",
 		Custom: map[string]any{
 			"queryPatterns": spansQueryPatterns(),
 		},
@@ -234,6 +234,7 @@ func spanMetricsTableMetadata() schemas.Metadata {
 		Description: "TraceQL metrics time series. Requires aggregation and FOR.",
 		Custom: map[string]any{
 			"queryPatterns": spanMetricsQueryPatterns(),
+			"maxTimeRange":  "3h",
 		},
 	}
 }
@@ -249,7 +250,11 @@ func spansTable(dynamic []schemas.Column) schemas.Table {
 // spanMetricsTableHints map SQL FOR (...) clauses to TraceQL metrics API options.
 func spanMetricsTableHints() []schemas.TableHint {
 	return []schemas.TableHint{
-		{Name: "rate", Description: "Span rate (| rate())", HasValue: true},
+		{
+			Name:        "rate",
+			Description: "TraceQL span rate (| rate()). Use FOR (rate()) with empty parentheses. Unlike Loki, no duration — use step('30s') for resolution.",
+			HasValue:    true,
+		},
 		{Name: "step", Description: "Query step, e.g. step('30s')", HasValue: true},
 		{Name: "instant", Description: "Instant metrics query"},
 		{Name: "exemplars", Description: "Max exemplars (0 = none)", HasValue: true},
@@ -258,15 +263,17 @@ func spanMetricsTableHints() []schemas.TableHint {
 
 func spanMetricsTable(dynamic []schemas.Column) schemas.Table {
 	return schemas.Table{
-		Name:       tempoSchemadsTableSpanMetrics,
-		Columns:    spanMetricsTableColumns(dynamic),
-		TableHints: spanMetricsTableHints(),
-		Metadata:   spanMetricsTableMetadata(),
+		Name:         tempoSchemadsTableSpanMetrics,
+		Columns:      spanMetricsTableColumns(dynamic),
+		TableHints:   spanMetricsTableHints(),
+		Capabilities: tempoMetricsCapabilities,
+		Metadata:     spanMetricsTableMetadata(),
 	}
 }
 
-// tempoMetricsCapabilities: aggregates compile via aggregation JSON in sql.go
-// (COUNT → count_over_time; AVG/SUM/MIN/MAX → *_over_time). rate() uses the rate table hint.
+// tempoMetricsCapabilities applies to span_metrics only. Aggregates compile via
+// aggregation JSON in sql.go (COUNT → count_over_time; AVG/SUM/MIN/MAX → *_over_time).
+// rate() uses the rate table hint.
 var tempoMetricsCapabilities = &schemas.DatasourceCapabilities{
 	AggregateFunctions: []schemas.AggregateFunction{
 		schemas.AggregateCount,
@@ -295,7 +302,6 @@ func (p *tempoSchemaProvider) Schema(ctx context.Context, _ *schemas.SchemaReque
 				spansTable(tagCols),
 				spanMetricsTable(tagCols),
 			},
-			Capabilities: tempoMetricsCapabilities,
 		},
 	}
 	if tagErr != nil {
@@ -320,7 +326,9 @@ func (p *tempoSchemaProvider) Tables(ctx context.Context, _ *schemas.TablesReque
 			tempoSchemadsTableSpans:       spansTableMetadata(),
 			tempoSchemadsTableSpanMetrics: spanMetricsTableMetadata(),
 		},
-		Capabilities: tempoMetricsCapabilities,
+		TableCapabilities: map[string]*schemas.DatasourceCapabilities{
+			tempoSchemadsTableSpanMetrics: tempoMetricsCapabilities,
+		},
 	}, nil
 }
 

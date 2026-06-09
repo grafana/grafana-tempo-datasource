@@ -82,8 +82,8 @@ github.com/grafana/otel-profiling-go v0.5.1 h1:stVPKAFZSa7eGiqbYuG25VcqYksR6iWvF
 github.com/grafana/otel-profiling-go v0.5.1/go.mod h1:ftN/t5A/4gQI19/8MoWurBEtC6gFw8Dns1sJZ9W4Tls=
 github.com/grafana/pyroscope-go/godeltaprof v0.1.9 h1:c1Us8i6eSmkW+Ez05d3co8kasnuOY813tbMN8i/a3Og=
 github.com/grafana/pyroscope-go/godeltaprof v0.1.9/go.mod h1:2+l7K7twW49Ct4wFluZD3tZ6e0SjanjcUUBPVD/UuGU=
-github.com/grafana/schemads v0.2.1 h1:7uYX4IHu/JbldQV77iJ5r6UxOwEVQI+D+R7n1UYexfE=
-github.com/grafana/schemads v0.2.1/go.mod h1:TX0YfoMxJ8dl1ONXTa+rFk1y3sw1khGwQjB8dKKfzds=
+github.com/grafana/schemads v0.2.2 h1:3vXluclcfHpisR5bF9jjLwtfAUgfSGT4iI5ba/wii1I=
+github.com/grafana/schemads v0.2.2/go.mod h1:TX0YfoMxJ8dl1ONXTa+rFk1y3sw1khGwQjB8dKKfzds=
 github.com/grafana/tempo v1.5.1-0.20250529124718-87c2dc380cec h1:wnzJov9RhSHGaTYGzTygL4qq986fLen8xSqnQgaMd28=
 github.com/grafana/tempo v1.5.1-0.20250529124718-87c2dc380cec/go.mod h1:j1IY7J2rUz7TcTjFVVx6HCpyTlYOJPtXuGRZ7sI+vSo=
 github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0 h1:QGLs/O40yoNK9vmy4rhUGBVyMf1lISBGtXRpsu/Qu/o=

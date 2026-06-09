@@ -273,6 +273,45 @@ func traceQLFromSchemadsFilters(filters []schemas.ColumnFilter) (string, error) 
 	return "{" + strings.Join(parts, " && ") + "}", nil
 }
 
+// traceQLEnumIntrinsics are TraceQL attributes whose enum operands must not be quoted.
+// Only kind/status (and scoped span:kind/span:status) use enum literals; all other
+// intrinsics use quoted strings, numbers, or durations per Tempo docs.
+// See grafana/tempo/pkg/traceql/lexer.go tokenMap and construct-traceql-queries intrinsic table.
+var traceQLEnumIntrinsics = map[string]struct{}{
+	"kind":        {},
+	"span:kind":   {},
+	"status":      {},
+	"span:status": {},
+}
+
+// traceQLStatusEnumValues matches Tempo lexer keywords STATUS_OK, STATUS_ERROR, STATUS_UNSET.
+var traceQLStatusEnumValues = map[string]struct{}{
+	"ok": {}, "unset": {}, "error": {},
+}
+
+// traceQLKindEnumValues matches Tempo lexer keywords KIND_*.
+var traceQLKindEnumValues = map[string]struct{}{
+	"unspecified": {}, "internal": {}, "server": {}, "client": {}, "producer": {}, "consumer": {},
+}
+
+func isTraceQLEnumLiteral(selector, value string) bool {
+	v := strings.ToLower(strings.TrimSpace(value))
+	switch selector {
+	case "status", "span:status":
+		_, ok := traceQLStatusEnumValues[v]
+		return ok
+	case "kind", "span:kind":
+		_, ok := traceQLKindEnumValues[v]
+		return ok
+	default:
+		return false
+	}
+}
+
+func traceQLEnumLiteralOperand(selector, value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
 // bareTraceQLSearchIntrinsics are span-search attributes that use no scope prefix and no leading dot.
 var bareTraceQLSearchIntrinsics = map[string]struct{}{
 	"duration":           {},
@@ -344,7 +383,7 @@ func filterConditionToTraceQL(selector string, fc schemas.FilterCondition) ([]st
 
 	if len(fc.Values) > 0 && op != schemas.OperatorLike {
 		if len(fc.Values) == 1 {
-			return []string{selector + string(op) + formatTraceQLOperand(fc.Values[0], true)}, nil
+			return []string{selector + string(op) + formatTraceQLOperand(selector, fc.Values[0], true)}, nil
 		}
 		return multiValueNonLikeToTraceQL(selector, op, fc.Values)
 	}
@@ -362,13 +401,13 @@ func filterConditionToTraceQL(selector string, fc schemas.FilterCondition) ([]st
 		return []string{fmt.Sprintf("%s=~%q", selector, re)}, nil
 	}
 
-	return []string{selector + string(op) + formatTraceQLOperand(fc.Value, true)}, nil
+	return []string{selector + string(op) + formatTraceQLOperand(selector, fc.Value, true)}, nil
 }
 
 func inConditionToTraceQL(selector string, values []any) string {
 	parts := make([]string, 0, len(values))
 	for _, v := range values {
-		parts = append(parts, selector+"="+formatTraceQLOperand(v, true))
+		parts = append(parts, selector+"="+formatTraceQLOperand(selector, v, true))
 	}
 	return "(" + strings.Join(parts, " || ") + ")"
 }
@@ -387,7 +426,7 @@ func multiValueNonLikeToTraceQL(selector string, op schemas.Operator, values []a
 	if op == schemas.OperatorNotEquals {
 		out := make([]string, 0, len(values))
 		for _, v := range values {
-			out = append(out, selector+string(op)+formatTraceQLOperand(v, true))
+			out = append(out, selector+string(op)+formatTraceQLOperand(selector, v, true))
 		}
 		return out, nil
 	}
@@ -406,7 +445,7 @@ func joinPipeQuotedValues(values []any) (string, error) {
 	return `"` + strings.Join(ss, "|") + `"`, nil
 }
 
-func formatTraceQLOperand(v any, inferString bool) string {
+func formatTraceQLOperand(selector string, v any, inferString bool) string {
 	switch t := v.(type) {
 	case bool:
 		return strconv.FormatBool(t)
@@ -419,12 +458,18 @@ func formatTraceQLOperand(v any, inferString bool) string {
 		return t.String()
 	case string:
 		if inferString && !looksNumeric(t) {
+			if _, isEnum := traceQLEnumIntrinsics[selector]; isEnum && isTraceQLEnumLiteral(selector, t) {
+				return traceQLEnumLiteralOperand(selector, t)
+			}
 			return strconv.Quote(t)
 		}
 		return t
 	default:
 		s := strings.TrimSpace(fmt.Sprint(v))
 		if inferString && !looksNumeric(s) {
+			if _, isEnum := traceQLEnumIntrinsics[selector]; isEnum && isTraceQLEnumLiteral(selector, s) {
+				return traceQLEnumLiteralOperand(selector, s)
+			}
 			return strconv.Quote(s)
 		}
 		return s
