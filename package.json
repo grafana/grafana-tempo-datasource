@@ -1,7 +1,7 @@
 {
   "name": "tempo",
   "description": "Grafana plugin for the Tempo data source.",
-  "version": "13.1.1",
+  "version": "13.1.2",
   "license": "AGPL-3.0",
   "author": "Grafana",
   "scripts": {
