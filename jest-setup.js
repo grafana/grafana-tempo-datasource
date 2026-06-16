@@ -1,6 +1,5 @@
 import React from 'react';
 import './.config/jest-setup';
-import { matchers } from './src/test/matchers';
 import { MessageChannel } from 'worker_threads';
 
 global.React = React;
@@ -60,5 +59,3 @@ window.getComputedStyle = (elt, pseudoElt) => {
   }
   return result;
 };
-
-expect.extend(matchers);
