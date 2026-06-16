@@ -142,5 +142,3 @@ export interface TraceqlFilter {
    */
   valueType?: string;
 }
-
-export interface TempoDataQuery {}

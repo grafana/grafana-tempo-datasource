@@ -403,7 +403,7 @@ function getOTLPReferences(
   return links;
 }
 
-export const RelatedProfilesTitle = 'Related profiles';
+const RelatedProfilesTitle = 'Related profiles';
 
 export function transformTrace(
   response: DataQueryResponse,

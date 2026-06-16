@@ -4,23 +4,51 @@ import {
   type DataQueryRequest,
   type DataQueryResponse,
   type DataSourceGetTagKeysOptions,
-  type DataSourceJsonData,
   type MetricFindValue,
 } from '@grafana/data';
 import { type DataQuery } from '@grafana/schema';
 
-import { type Prometheus as GenPromQuery } from './dataquery.gen';
-
-// import { QueryBuilderLabelFilter, QueryEditorMode } from './querybuilder/shared/types';
-export interface QueryBuilderLabelFilter {
-  label: string;
-  op: string;
-  value: string;
-}
-
-export enum QueryEditorMode {
+enum QueryEditorMode {
   Code = 'code',
   Builder = 'builder',
+}
+
+type PromQueryFormat = 'time_series' | 'table' | 'heatmap';
+
+interface GenPromQuery extends DataQuery {
+  /**
+   * Specifies which editor is being used to prepare the query. It can be "code" or "builder"
+   */
+  editorMode?: QueryEditorMode;
+  /**
+   * Execute an additional query to identify interesting raw samples relevant for the given expr
+   */
+  exemplar?: boolean;
+  /**
+   * The actual expression/query that will be evaluated by Prometheus
+   */
+  expr: string;
+  /**
+   * Query format to determine how to display data points in panel. It can be "time_series", "table", "heatmap"
+   */
+  format?: PromQueryFormat;
+  /**
+   * Returns only the latest value that Prometheus has scraped for the requested time series
+   */
+  instant?: boolean;
+  /**
+   * @deprecated Used to specify how many times to divide max data points by. We use max data points under query options
+   * See https://github.com/grafana/grafana/issues/48081
+   */
+  intervalFactor?: number;
+  /**
+   * Series name override or template. Ex. {{hostname}} will be replaced with label value for hostname
+   */
+  legendFormat?: string;
+  /**
+   * Returns a Range vector, comprised of a set of time series containing a range of data points over time for each time series
+   */
+  range?: boolean;
 }
 
 export interface PromQuery extends GenPromQuery, DataQuery {
@@ -39,125 +67,6 @@ export interface PromQuery extends GenPromQuery, DataQuery {
   fullMetaSearch?: boolean;
   includeNullMetadata?: boolean;
 }
-
-export enum PrometheusCacheLevel {
-  Low = 'Low',
-  Medium = 'Medium',
-  High = 'High',
-  None = 'None',
-}
-
-export enum PromApplication {
-  Cortex = 'Cortex',
-  Mimir = 'Mimir',
-  Prometheus = 'Prometheus',
-  Thanos = 'Thanos',
-}
-
-export interface PromOptions extends DataSourceJsonData {
-  timeInterval?: string;
-  queryTimeout?: string;
-  httpMethod?: string;
-  customQueryParameters?: string;
-  disableMetricsLookup?: boolean;
-  exemplarTraceIdDestinations?: ExemplarTraceIdDestination[];
-  prometheusType?: PromApplication;
-  prometheusVersion?: string;
-  cacheLevel?: PrometheusCacheLevel;
-  defaultEditor?: QueryEditorMode;
-  incrementalQuerying?: boolean;
-  incrementalQueryOverlapWindow?: string;
-  disableRecordingRules?: boolean;
-  sigV4Auth?: boolean;
-  oauthPassThru?: boolean;
-}
-
-export type ExemplarTraceIdDestination = {
-  name: string;
-  url?: string;
-  urlDisplayLabel?: string;
-  datasourceUid?: string;
-};
-
-export interface PromQueryRequest extends PromQuery {
-  step?: number;
-  requestId?: string;
-  start: number;
-  end: number;
-  headers?: any;
-}
-
-export interface PromMetricsMetadataItem {
-  type: string;
-  help: string;
-  unit?: string;
-}
-
-export interface PromMetricsMetadata {
-  [metric: string]: PromMetricsMetadataItem;
-}
-
-export type PromValue = [number, any];
-
-export interface PromMetric {
-  __name__?: string;
-
-  [index: string]: any;
-}
-
-export interface PromBuildInfoResponse {
-  data: {
-    application?: string;
-    version: string;
-    revision: string;
-    features?: {
-      ruler_config_api?: 'true' | 'false';
-      alertmanager_config_api?: 'true' | 'false';
-      query_sharding?: 'true' | 'false';
-      federated_rules?: 'true' | 'false';
-    };
-    [key: string]: unknown;
-  };
-  status: 'success';
-}
-
-/**
- * Auto = query.legendFormat == '__auto'
- * Verbose = query.legendFormat == null/undefined/''
- * Custom query.legendFormat.length > 0 && query.legendFormat !== '__auto'
- */
-export enum LegendFormatMode {
-  Auto = '__auto',
-  Verbose = '__verbose',
-  Custom = '__custom',
-}
-
-export enum PromVariableQueryType {
-  LabelNames,
-  LabelValues,
-  MetricNames,
-  VarQueryResult,
-  SeriesQuery,
-  ClassicQuery,
-}
-
-export interface PromVariableQuery extends DataQuery {
-  query?: string;
-  expr?: string;
-  qryType?: PromVariableQueryType;
-  label?: string;
-  metric?: string;
-  varQuery?: string;
-  seriesQuery?: string;
-  labelFilters?: QueryBuilderLabelFilter[];
-  match?: string;
-  classicQuery?: string;
-}
-
-export type StandardPromVariableQuery = {
-  query: string;
-  refId: string;
-};
 
 export type PrometheusDatasource = {
   getTagKeys(options: DataSourceGetTagKeysOptions): Promise<MetricFindValue[]>;
