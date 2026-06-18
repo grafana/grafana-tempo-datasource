@@ -95,5 +95,15 @@ services:
       # in Grafana — without this override Grafana silently rejects the externalized plugin
       # ("Plugin source loaded, though no plugins were found") and falls back to the core one.
       GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: tempo
-    volumes:
-      - ./custom.ini:/etc/grafana/grafana.ini
+    configs:
+      # Run the externalized plugin in place of the core Tempo plugin.
+      # Without as_external=true, DuplicatePluginIDValidation (pkg/services/pluginsintegration/pipeline/steps.go)
+      # drops the external plugin because the core one is already registered under id=tempo.
+      - source: grafana_custom_ini
+        target: /etc/grafana/grafana.ini
+
+configs:
+  grafana_custom_ini:
+    content: |
+      [plugin.tempo]
+      as_external = true
