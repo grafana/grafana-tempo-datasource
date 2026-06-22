@@ -82,13 +82,8 @@ func (ds *DataSource) Search(ctx context.Context, pCtx backend.PluginContext, qu
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		err := fmt.Errorf("failed to execute search query Status: %s Body: %s", resp.Status, describeErrorBody(resp, body))
-		ctxLogger.Error("Failed to execute search query", "error", err, "function", logEntrypoint())
-		if backend.ErrorSourceFromHTTPStatus(resp.StatusCode) == backend.ErrorSourceDownstream {
-			return nil, backend.DownstreamError(err)
-		}
-
-		return nil, err
+		ctxLogger.Error("Failed to execute search query", "error", err, "body", describeErrorBody(resp, body), "function", logEntrypoint())
+		return dataResponseFromHTTPError(resp, body, fmt.Sprintf("failed to execute search query status: %s", resp.Status)), nil
 	}
 
 	var response tempopb.SearchResponse
