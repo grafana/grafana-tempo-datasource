@@ -23,8 +23,9 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/resource/httpadapter"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/tracing"
-	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	"github.com/grafana/tempo/pkg/tempopb"
+
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 )
 
 var (
@@ -271,6 +272,14 @@ func (ds *DataSource) handleTagValues(rw http.ResponseWriter, req *http.Request)
 		ds.logger.Error("Failed to unescape", "error", err, "tag", encodedTag)
 		http.Error(rw, "Invalid 'tag' parameter", http.StatusBadRequest)
 		return
+	}
+
+	for _, segment := range strings.Split(tag, "/") {
+		if segment == "." || segment == ".." {
+			ds.logger.Error("Invalid tag parameter", "tag", tag)
+			http.Error(rw, "Invalid 'tag' parameter", http.StatusBadRequest)
+			return
+		}
 	}
 
 	tempoPath := fmt.Sprintf("api/v2/search/tag/%s/values", tag)
