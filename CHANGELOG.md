@@ -1,3 +1,7 @@
+## 13.1.3
+
+- Fix path traversal GL-Vuln: VUL-2026-0062 ([#197](https://github.com/grafana/grafana-tempo-datasource/pull/197))
+
 ## 13.1.2
 
 - Bump go v1.26.4
