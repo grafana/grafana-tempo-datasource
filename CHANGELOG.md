@@ -1,3 +1,7 @@
+## 13.1.4
+
+- Fix: Case-insensitive header collision when forwarding team headers ([#199](https://github.com/grafana/grafana-tempo-datasource/pull/199))
+
 ## 13.1.3
 
 - Fix path traversal GL-Vuln: VUL-2026-0062 ([#197](https://github.com/grafana/grafana-tempo-datasource/pull/197))
