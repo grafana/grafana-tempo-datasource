@@ -38,6 +38,7 @@ interface Props {
   staticTags: Array<string | undefined>;
   isTagsLoading: boolean;
   hideValues?: boolean;
+  showLabels?: boolean;
   requireTagAndValue?: boolean;
   addVariablesToOptions?: boolean;
   range?: TimeRange;
@@ -52,6 +53,7 @@ const TagsInput = ({
   staticTags,
   isTagsLoading,
   hideValues,
+  showLabels,
   requireTagAndValue,
   generateQueryWithoutFilter,
   addVariablesToOptions,
@@ -92,6 +94,7 @@ const TagsInput = ({
             tags={getTags(f)}
             isTagsLoading={isTagsLoading}
             hideValue={hideValues}
+            showLabel={showLabels}
             query={generateQueryWithoutFilter(f)}
             addVariablesToOptions={addVariablesToOptions}
             range={range}
