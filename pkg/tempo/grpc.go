@@ -234,7 +234,16 @@ func getDialOpts(ctx context.Context, settings backend.DataSourceInstanceSetting
 func CustomHeadersStreamInterceptor(httpOpts httpclient.Options) grpc.StreamClientInterceptor {
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 		if len(httpOpts.Header) != 0 {
+			existing, _ := metadata.FromOutgoingContext(ctx)
 			for key, value := range httpOpts.Header {
+				// RunStream already appends the datasource headers to the outgoing context
+				// via GetHeadersFromIncomingContext. Re-adding them here duplicates the
+				// metadata value; for X-Scope-OrgID that makes Tempo's dskit auth (which
+				// requires exactly one org id) reject the stream with "no org id". Skip any
+				// header already present so each datasource header is sent exactly once.
+				if existing != nil && len(existing.Get(key)) > 0 {
+					continue
+				}
 				for _, v := range value {
 					ctx = metadata.AppendToOutgoingContext(ctx, key, v)
 				}
