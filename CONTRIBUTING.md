@@ -1,5 +1,10 @@
 # Contributing
 
+## Signed commits are required
+
+> [!IMPORTANT]
+> All commits must be [signed](https://docs.github.com/en/authentication/managing-commit-signature-verification/signing-commits) (GPG, SSH, or S/MIME) to be merged into this repository. Pull requests with unsigned commits will need to be re-committed with signatures before they can be merged.
+
 Thank you for your interest in contributing to the Tempo data source for Grafana! We welcome contributions from the community.
 
 Feel free to [browse open issues](https://github.com/grafana/grafana-tempo-datasource/issues) or open a new one. For more general guidance, see [Grafana's Contributing Guide](https://github.com/grafana/grafana/blob/main/CONTRIBUTING.md).
@@ -60,13 +65,13 @@ npm run server
 The local stack mirrors `grafana/grafana`'s `devenv/docker/blocks/tempo` setup so the
 plugin always has trace data to query during development:
 
-| Service      | Image                       | What it does                                          | Host port |
-| ------------ | --------------------------- | ----------------------------------------------------- | --------- |
-| `tempo`      | `grafana/tempo:latest`      | Trace backend (OTLP gRPC/HTTP, Jaeger HTTP, query)    | 3200, 4317, 4318, 14268 |
-| `prometheus` | `prom/prometheus:latest`    | Receives Tempo's metrics-generator remote_write       | 9090      |
-| `db`         | `grafana/tns-db:9c1ab38`    | TNS demo app — emits Jaeger traces via `JAEGER_ENDPOINT` | 8000      |
-| `app`        | `grafana/tns-app:9c1ab38`   | TNS demo app                                          | 8001      |
-| `loadgen`    | `grafana/tns-loadgen:9c1ab38` | Drives traffic against `app` so traces flow continuously | 8002 |
+| Service      | Image                         | What it does                                             | Host port               |
+| ------------ | ----------------------------- | -------------------------------------------------------- | ----------------------- |
+| `tempo`      | `grafana/tempo:latest`        | Trace backend (OTLP gRPC/HTTP, Jaeger HTTP, query)       | 3200, 4317, 4318, 14268 |
+| `prometheus` | `prom/prometheus:latest`      | Receives Tempo's metrics-generator remote_write          | 9090                    |
+| `db`         | `grafana/tns-db:9c1ab38`      | TNS demo app — emits Jaeger traces via `JAEGER_ENDPOINT` | 8000                    |
+| `app`        | `grafana/tns-app:9c1ab38`     | TNS demo app                                             | 8001                    |
+| `loadgen`    | `grafana/tns-loadgen:9c1ab38` | Drives traffic against `app` so traces flow continuously | 8002                    |
 
 Tempo is reachable at `http://localhost:3200` and accepts OTLP traces on ports `4317`
 (gRPC) / `4318` (HTTP). The TNS apps push traces over Jaeger to `tempo:14268`, and Tempo's
