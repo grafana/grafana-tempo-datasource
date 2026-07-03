@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -201,31 +202,40 @@ const (
 
 func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo, apiVersion TraceRequestApiVersion, traceID string, start int64, end int64) (*http.Request, error) {
 	ctxLogger := ds.logger.FromContext(ctx)
-	var baseUrl string
-	var tempoQuery string
 
 	if !traceIDPattern.MatchString(traceID) {
 		return nil, backend.DownstreamErrorf("invalid trace id")
 	}
 
+	var rawUrl string
 	var err error
 	if apiVersion == TraceRequestApiVersionV1 {
-		baseUrl, err = url.JoinPath(dsInfo.URL, "api", "traces", traceID)
+		rawUrl, err = url.JoinPath(dsInfo.URL, "api", "traces", traceID)
 	} else {
-		baseUrl, err = url.JoinPath(dsInfo.URL, "api", "v2", "traces", traceID)
+		rawUrl, err = url.JoinPath(dsInfo.URL, "api", "v2", "traces", traceID)
 	}
 	if err != nil {
 		ctxLogger.Error("Failed to build trace URL", "error", err, "function", logEntrypoint())
 		return nil, err
 	}
 
-	if start == 0 || end == 0 {
-		tempoQuery = baseUrl
-	} else {
-		tempoQuery = fmt.Sprintf("%s?start=%d&end=%d", baseUrl, start, end)
+	traceUrl, err := url.Parse(rawUrl)
+	if err != nil {
+		ctxLogger.Error("Failed to parse trace URL", "url", rawUrl, "error", err, "function", logEntrypoint())
+		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", tempoQuery, nil)
+	// Only add the time range when both bounds are set. Using url.Values keeps any
+	// query parameters already present in the configured data source URL instead of
+	// clobbering them with a second "?" (see PR #212 review).
+	if start != 0 && end != 0 {
+		q := traceUrl.Query()
+		q.Set("start", strconv.FormatInt(start, 10))
+		q.Set("end", strconv.FormatInt(end, 10))
+		traceUrl.RawQuery = q.Encode()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", traceUrl.String(), nil)
 	if err != nil {
 		ctxLogger.Error("Failed to create request", "error", err, "function", logEntrypoint())
 		return nil, err
