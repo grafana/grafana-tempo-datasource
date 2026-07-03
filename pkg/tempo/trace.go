@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 
 	"github.com/gogo/protobuf/proto"
@@ -207,10 +208,15 @@ func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo,
 		return nil, backend.DownstreamErrorf("invalid trace id")
 	}
 
+	var err error
 	if apiVersion == TraceRequestApiVersionV1 {
-		baseUrl = fmt.Sprintf("%s/api/traces/%s", dsInfo.URL, traceID)
+		baseUrl, err = url.JoinPath(dsInfo.URL, "api", "traces", traceID)
 	} else {
-		baseUrl = fmt.Sprintf("%s/api/v2/traces/%s", dsInfo.URL, traceID)
+		baseUrl, err = url.JoinPath(dsInfo.URL, "api", "v2", "traces", traceID)
+	}
+	if err != nil {
+		ctxLogger.Error("Failed to build trace URL", "error", err, "function", logEntrypoint())
+		return nil, err
 	}
 
 	if start == 0 || end == 0 {
