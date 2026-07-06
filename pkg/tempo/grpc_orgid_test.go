@@ -10,8 +10,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// outgoingOrgIDs runs interceptor over ctx and returns the x-scope-orgid values that
-// reach the outgoing metadata when the underlying streamer is finally invoked.
+// outgoingOrgIDs returns the x-scope-orgid values reaching the outgoing metadata.
 func outgoingOrgIDs(t *testing.T, interceptor grpc.StreamClientInterceptor, ctx context.Context) []string {
 	t.Helper()
 	var got []string
@@ -24,24 +23,28 @@ func outgoingOrgIDs(t *testing.T, interceptor grpc.StreamClientInterceptor, ctx 
 	return got
 }
 
-// TestCustomHeadersStreamInterceptor_NoDuplicateOrgID guards against re-injecting a
-// datasource header that RunStream already placed on the outgoing context. A duplicate
-// X-Scope-OrgID makes Tempo (dskit) reject the stream with "no org id", because it
-// requires exactly one org id value.
 func TestCustomHeadersStreamInterceptor_NoDuplicateOrgID(t *testing.T) {
-	opts := httpclient.Options{Header: http.Header{"X-Scope-Orgid": []string{"team-a"}}}
+	opts := httpclient.Options{Header: http.Header{"X-Scope-OrgID": []string{"team-a"}}}
 	interceptor := CustomHeadersStreamInterceptor(opts)
 
-	// Streaming path: the header is already on the outgoing context (appended by
-	// RunStream via GetHeadersFromIncomingContext) -> it must not be added again.
+	// already present (RunStream path)
 	ctxWith := metadata.AppendToOutgoingContext(context.Background(), "X-Scope-OrgID", "team-a")
 	if got := outgoingOrgIDs(t, interceptor, ctxWith); len(got) != 1 || got[0] != "team-a" {
 		t.Fatalf("header already present: want exactly [team-a], got %d: %v", len(got), got)
 	}
 
-	// Direct path (e.g. CheckHealth): empty outgoing context -> the interceptor must
-	// inject the datasource header exactly once.
+	// empty context (CheckHealth path)
 	if got := outgoingOrgIDs(t, interceptor, context.Background()); len(got) != 1 || got[0] != "team-a" {
 		t.Fatalf("empty context: want exactly [team-a], got %d: %v", len(got), got)
+	}
+}
+
+func TestCustomHeadersStreamInterceptor_OverwritesConflictingValue(t *testing.T) {
+	opts := httpclient.Options{Header: http.Header{"X-Scope-OrgID": []string{"team-a"}}}
+	interceptor := CustomHeadersStreamInterceptor(opts)
+
+	ctx := metadata.AppendToOutgoingContext(context.Background(), "X-Scope-OrgID", "stale-tenant")
+	if got := outgoingOrgIDs(t, interceptor, ctx); len(got) != 1 || got[0] != "team-a" {
+		t.Fatalf("want datasource value to win: exactly [team-a], got %d: %v", len(got), got)
 	}
 }
