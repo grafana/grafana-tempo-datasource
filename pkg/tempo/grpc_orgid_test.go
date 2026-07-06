@@ -19,7 +19,9 @@ func outgoingOrgIDs(t *testing.T, interceptor grpc.StreamClientInterceptor, ctx 
 		got = md.Get("x-scope-orgid")
 		return nil, nil
 	}
-	_, _ = interceptor(ctx, &grpc.StreamDesc{}, nil, "/tempopb.StreamingQuerier/Search", streamer)
+	if _, err := interceptor(ctx, &grpc.StreamDesc{}, nil, "/tempopb.StreamingQuerier/Search", streamer); err != nil {
+		t.Fatalf("interceptor returned error: %v", err)
+	}
 	return got
 }
 
