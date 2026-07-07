@@ -54,7 +54,7 @@ services:
     # the `tempo` hostname and the e2e Save & test health check fails with
     # `dial tcp: lookup tempo on 127.0.0.11:53: no such host`. Match the pin
     # used by grafana/grafana devenv/frontend-service/docker-compose.yaml.
-    image: grafana/tempo:2.10.5@sha256:ee21727732c7a7199cb71c3eee9153bbf23f9b0b87619f0555a0cf21a67f1a33
+    image: grafana/tempo:3.0.2@sha256:cda87c212d8c584dc0b89e337e7ed648a5100feb657e5d528480ee4fa03dbbe3
     command: -config.file=/etc/tempo.yaml
     ports:
       - '3200:3200'   # tempo HTTP
