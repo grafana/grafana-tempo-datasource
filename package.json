@@ -25,7 +25,7 @@
     "@grafana/assistant": "0.1.25",
     "@grafana/data": "13.1.0-27316398859",
     "@grafana/e2e-selectors": "13.1.0-27316398859",
-    "@grafana/lezer-traceql": "0.0.25",
+    "@grafana/lezer-traceql": "1.0.0",
     "@grafana/o11y-ds-frontend": "13.1.0-27316398859",
     "@grafana/plugin-ui": "0.15.1",
     "@grafana/runtime": "13.1.0-27316398859",
