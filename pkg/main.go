@@ -6,6 +6,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-tempo-datasource/pkg/tempo"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/models"
 )
 
 func main() {
@@ -17,7 +18,7 @@ func main() {
 	// from Grafana to create different instances of SampleDatasource (per datasource
 	// ID). When datasource configuration changed Dispose method will be called and
 	// new datasource instance created using NewSampleDatasource factory.
-	if err := datasource.Manage("tempo", tempo.NewDatasource, datasource.ManageOpts{}); err != nil {
+	if err := datasource.Manage(models.PluginID, tempo.NewDatasource, datasource.ManageOpts{}); err != nil {
 		log.DefaultLogger.Error(err.Error())
 		os.Exit(1)
 	}
