@@ -234,11 +234,17 @@ func getDialOpts(ctx context.Context, settings backend.DataSourceInstanceSetting
 func CustomHeadersStreamInterceptor(httpOpts httpclient.Options) grpc.StreamClientInterceptor {
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 		if len(httpOpts.Header) != 0 {
-			for key, value := range httpOpts.Header {
-				for _, v := range value {
-					ctx = metadata.AppendToOutgoingContext(ctx, key, v)
-				}
+			md, ok := metadata.FromOutgoingContext(ctx)
+			if ok {
+				md = md.Copy()
+			} else {
+				md = metadata.MD{}
 			}
+			for key, values := range httpOpts.Header {
+				// Set, not Append: datasource header always wins, never duplicates.
+				md.Set(key, values...)
+			}
+			ctx = metadata.NewOutgoingContext(ctx, md)
 		}
 
 		return streamer(ctx, desc, cc, method, opts...)
