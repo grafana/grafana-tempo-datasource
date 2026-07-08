@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCheckHealth(t *testing.T) {
@@ -58,6 +61,73 @@ func TestCheckHealth(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedStatus, result.Status)
 			assert.Contains(t, result.Message, tt.expectedMessage)
+		})
+	}
+}
+
+func TestQueryDataPropagatesPlaintextHTTPErrorInDataResponse(t *testing.T) {
+	tests := []struct {
+		name      string
+		queryType dataquery.TempoQueryType
+		queryJSON string
+	}{
+		{
+			name:      "trace",
+			queryType: dataquery.TempoQueryTypeTraceId,
+			queryJSON: `{"query":"abc123"}`,
+		},
+		{
+			name:      "traceql search",
+			queryType: dataquery.TempoQueryTypeTraceql,
+			queryJSON: `{"query":"{ .service.name = \"api\" }"}`,
+		},
+		{
+			name:      "traceql metrics",
+			queryType: dataquery.TempoQueryTypeTraceql,
+			queryJSON: `{"query":"{} | rate()"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			const apiError = "tempo API plaintext error"
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, apiError, http.StatusInternalServerError)
+			}))
+			defer server.Close()
+
+			ds := &DataSource{
+				info: &DatasourceInfo{
+					URL:        server.URL,
+					HTTPClient: server.Client(),
+				},
+				logger: backend.NewLoggerWith("logger", "tempo-test"),
+			}
+
+			response, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
+				PluginContext: backend.PluginContext{
+					DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{URL: server.URL},
+				},
+				Queries: []backend.DataQuery{
+					{
+						RefID:     "A",
+						QueryType: string(tt.queryType),
+						JSON:      []byte(tt.queryJSON),
+						TimeRange: backend.TimeRange{
+							From: time.Unix(1, 0),
+							To:   time.Unix(2, 0),
+						},
+					},
+				},
+			})
+
+			require.NoError(t, err)
+			require.Contains(t, response.Responses, "A")
+			dataResponse := response.Responses["A"]
+			require.Error(t, dataResponse.Error)
+			assert.Equal(t, apiError+"\n", dataResponse.Error.Error())
+			assert.Equal(t, backend.Status(http.StatusInternalServerError), dataResponse.Status)
+			assert.Equal(t, backend.ErrorSourceDownstream, dataResponse.ErrorSource)
 		})
 	}
 }
