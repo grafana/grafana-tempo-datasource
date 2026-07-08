@@ -1,3 +1,7 @@
+## 13.1.5
+
+- Fix: Avoid duplicate X-Scope-OrgID header on streaming search ([#207](https://github.com/grafana/grafana-tempo-datasource/pull/207))
+
 ## 13.1.4
 
 - Fix: Case-insensitive header collision when forwarding team headers ([#199](https://github.com/grafana/grafana-tempo-datasource/pull/199))
