@@ -6,7 +6,7 @@ import useAsync from 'react-use/lib/useAsync';
 import { type SelectableValue, type TimeRange } from '@grafana/data';
 import { TemporaryAlert } from '@grafana/o11y-ds-frontend';
 import { type FetchError, getTemplateSrv, isFetchError } from '@grafana/runtime';
-import { Select, Stack, useStyles2, type InputActionMeta } from '@grafana/ui';
+import { Input, Select, Stack, useStyles2, type InputActionMeta } from '@grafana/ui';
 
 import { type TraceqlFilter, TraceqlSearchScope } from '../dataquery';
 import { type TempoDatasource } from '../datasource';
@@ -26,6 +26,7 @@ interface Props {
   hideScope?: boolean;
   hideTag?: boolean;
   hideValue?: boolean;
+  showLabel?: boolean;
   query: string;
   isMulti?: boolean;
   allowCustomValue?: boolean;
@@ -43,6 +44,7 @@ const SearchField = ({
   hideScope,
   hideTag,
   hideValue,
+  showLabel,
   query,
   addVariablesToOptions,
   isMulti = true,
@@ -271,6 +273,16 @@ const SearchField = ({
             allowCustomValue={allowCustomValue}
             isMulti={isMulti}
             allowCreateWhileLoading
+          />
+        )}
+        {showLabel && (
+          <Input
+            className={styles.dropdown}
+            id={`${filter.id}-label`}
+            placeholder="Label (optional)"
+            value={filter.label ?? ''}
+            onChange={(e) => updateFilter({ ...filter, label: e.currentTarget.value.trim() ? e.currentTarget.value : undefined })}
+            aria-label={`select ${filter.id} label`}
           />
         )}
       </Stack>

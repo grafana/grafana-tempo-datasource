@@ -7,6 +7,7 @@ import { intrinsics } from '../traceql/traceql';
 
 import { emptyTags, testIntrinsics, v1Tags, v2Tags } from './mocks';
 import {
+  filterTitle,
   filterToQuerySection,
   getAllTags,
   getFilteredTags,
@@ -192,5 +193,41 @@ describe('filterToQuerySection returns the correct query section for a filter', 
     };
     const result = filterToQuerySection(filter, [], lp);
     expect(result).toBe('span.foo!~"bar|baz"');
+  });
+});
+
+describe('filterTitle returns the correct title for a filter', () => {
+  it('uses the custom label when one is set', () => {
+    const filter: TraceqlFilter = {
+      id: 'abc',
+      tag: 'k8s.cluster.name',
+      label: 'Cluster',
+      scope: TraceqlSearchScope.Resource,
+    };
+    expect(filterTitle(filter, lp)).toBe('Cluster');
+  });
+
+  it('prefers the custom label over the intrinsic name special case', () => {
+    const filter: TraceqlFilter = { id: 'abc', tag: 'name', label: 'Operation' };
+    expect(filterTitle(filter, lp)).toBe('Operation');
+  });
+
+  it('falls back to the generated title when no label is set', () => {
+    const filter: TraceqlFilter = {
+      id: 'abc',
+      tag: 'k8s.cluster.name',
+      scope: TraceqlSearchScope.Resource,
+    };
+    expect(filterTitle(filter, lp)).toBe('Resource K 8 S Cluster Name');
+  });
+
+  it('falls back to the generated title when the label is an empty string', () => {
+    const filter: TraceqlFilter = { id: 'abc', tag: 'name', label: '' };
+    expect(filterTitle(filter, lp)).toBe('Span Name');
+  });
+
+  it('falls back to the generated title when the label is only whitespace', () => {
+    const filter: TraceqlFilter = { id: 'abc', tag: 'name', label: '   ' };
+    expect(filterTitle(filter, lp)).toBe('Span Name');
   });
 });
