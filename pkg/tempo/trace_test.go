@@ -74,4 +74,54 @@ func TestTempo(t *testing.T) {
 		require.Error(t, err)
 		assert.True(t, backend.IsDownstreamError(err))
 	})
+
+	t.Run("getTrace non-200 HTML response returns friendly error without raw HTML", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte("<html><head><title>502 Bad Gateway</title></head><body>proxy error</body></html>"))
+		}))
+		defer server.Close()
+
+		service := &DataSource{
+			info:   &DatasourceInfo{URL: server.URL, HTTPClient: server.Client()},
+			logger: backend.NewLoggerWith("logger", "tempo-test"),
+		}
+		pluginCtx := backend.PluginContext{
+			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{URL: server.URL},
+		}
+		query := backend.DataQuery{JSON: []byte(`{"query": "abc123"}`)}
+
+		res, err := service.getTrace(context.Background(), pluginCtx, query)
+
+		assert.Nil(t, res)
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "<html", "raw HTML must not leak into the error message")
+		assert.NotContains(t, err.Error(), "<body", "raw HTML must not leak into the error message")
+		assert.Contains(t, err.Error(), "unavailable", "should hint the instance may be unavailable / behind a proxy")
+	})
+
+	t.Run("getTrace non-200 JSON body is preserved", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid TraceQL"}`))
+		}))
+		defer server.Close()
+
+		service := &DataSource{
+			info:   &DatasourceInfo{URL: server.URL, HTTPClient: server.Client()},
+			logger: backend.NewLoggerWith("logger", "tempo-test"),
+		}
+		pluginCtx := backend.PluginContext{
+			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{URL: server.URL},
+		}
+		query := backend.DataQuery{JSON: []byte(`{"query": "abc123"}`)}
+
+		res, err := service.getTrace(context.Background(), pluginCtx, query)
+
+		assert.Nil(t, res)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid TraceQL", "Tempo's JSON error detail must be preserved (#203)")
+	})
 }
