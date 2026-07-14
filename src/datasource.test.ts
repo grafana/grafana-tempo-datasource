@@ -45,6 +45,7 @@ import {
   getEscapedValues,
   makeHistogramLink,
   makePromServiceMapRequest,
+  parseTimeRangeForTags,
 } from './datasource';
 import mockJson from './test/mockJsonResponse.json';
 import mockServiceGraph from './test/mockServiceGraph.json';
@@ -1525,6 +1526,34 @@ const replaceVariablesUninstrumented = (variable: string): string => {
   };
   return variables[variable];
 };
+
+describe('parseTimeRangeForTags', () => {
+  it('returns a plain number of seconds unchanged', () => {
+    expect(parseTimeRangeForTags(259200)).toBe(259200);
+  });
+
+  it('parses a numeric string as seconds', () => {
+    expect(parseTimeRangeForTags('259200')).toBe(259200);
+    // "7" documents Tempo behaviour of 7 seconds, not 7 days
+    expect(parseTimeRangeForTags('7')).toBe(7);
+  });
+
+  it('parses a duration string from provisioning into seconds', () => {
+    expect(parseTimeRangeForTags('30m')).toBe(1800);
+    expect(parseTimeRangeForTags('3h')).toBe(10800);
+    expect(parseTimeRangeForTags('24h')).toBe(86400);
+    expect(parseTimeRangeForTags('3d')).toBe(259200);
+    expect(parseTimeRangeForTags('7d')).toBe(604800);
+  });
+
+  it('returns undefined for missing or invalid values instead of producing NaN', () => {
+    expect(parseTimeRangeForTags(undefined)).toBeUndefined();
+    expect(parseTimeRangeForTags('')).toBeUndefined();
+    expect(parseTimeRangeForTags('NaN')).toBeUndefined();
+    expect(parseTimeRangeForTags('not-a-duration')).toBeUndefined();
+    expect(parseTimeRangeForTags(NaN)).toBeUndefined();
+  });
+});
 
 interface PromQuery extends DataQuery {
   expr: string;
