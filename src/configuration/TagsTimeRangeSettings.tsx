@@ -1,6 +1,7 @@
 import { type DataSourcePluginOptionsEditorProps, updateDatasourcePluginJsonDataOption } from '@grafana/data';
 import { Combobox, InlineField, InlineFieldRow, useStyles2 } from '@grafana/ui';
 
+import { parseTimeRangeForTags } from '../datasource';
 import { type TempoJsonData } from '../types';
 
 import { getStyles } from './QuerySettings';
@@ -27,7 +28,7 @@ export function TagsTimeRangeSettings({ options, onOptionsChange }: Props) {
           <Combobox
             id="time-range-for-tags-select"
             options={selectOptions}
-            value={options.jsonData?.timeRangeForTags || DEFAULT_TIME_RANGE_FOR_TAGS}
+            value={parseTimeRangeForTags(options.jsonData?.timeRangeForTags) ?? DEFAULT_TIME_RANGE_FOR_TAGS}
             onChange={(v) => {
               updateDatasourcePluginJsonDataOption(
                 { onOptionsChange, options },

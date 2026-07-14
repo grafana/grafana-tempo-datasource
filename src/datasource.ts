@@ -141,7 +141,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     this.nodeGraph = instanceSettings.jsonData.nodeGraph;
     this.traceQuery = instanceSettings.jsonData.traceQuery;
     this.streamingEnabled = instanceSettings.jsonData.streamingEnabled;
-    this.timeRangeForTags = instanceSettings.jsonData.timeRangeForTags;
+    this.timeRangeForTags = parseTimeRangeForTags(instanceSettings.jsonData.timeRangeForTags);
     this.languageProvider = new TempoLanguageProvider(this);
 
     if (!this.search?.filters) {
@@ -1106,6 +1106,35 @@ export function getEscapedRegexValues(values: string[]) {
 
 export function getEscapedValues(values: string[]) {
   return values.map((value: string) => value.replace(/["\\]/g, '\\$&').replace(/[\n]/g, '\\n'));
+}
+
+/**
+ * Normalise the `timeRangeForTags` jsonData option to a number of seconds.
+ *
+ * The datasource UI stores this option as a number of seconds, but when the
+ * datasource is provisioned via YAML the documented format is a duration string
+ * (e.g. "3d", "30m"). Without normalising, a provisioned string flows straight
+ * into time-range arithmetic and produces a `NaN` `start` parameter, which
+ * Tempo rejects with "error parsing date range".
+ *
+ * Returns undefined for missing or unparseable values so callers fall back to
+ * the default behaviour instead of issuing an invalid query.
+ */
+export function parseTimeRangeForTags(value?: number | string): number | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === 'number') {
+    return isNaN(value) ? undefined : value;
+  }
+  try {
+    // intervalToSeconds handles both unit-less numeric strings ("259200") and
+    // duration strings ("3d", "30m"); it throws on anything else.
+    const seconds = rangeUtil.intervalToSeconds(value);
+    return isNaN(seconds) ? undefined : seconds;
+  } catch {
+    return undefined;
+  }
 }
 
 export function getFieldConfig(
