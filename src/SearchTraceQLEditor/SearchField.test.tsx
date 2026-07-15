@@ -154,6 +154,34 @@ describe('SearchField', () => {
     }
   });
 
+  it('should render the label input and update the filter label when showLabel is true', async () => {
+    const updateFilter = jest.fn((val) => {
+      return val;
+    });
+    const filter: TraceqlFilter = { id: 'test1', valueType: 'string', tag: 'test-tag' };
+
+    const { container } = renderSearchField(updateFilter, filter, [], false, undefined, undefined, true);
+
+    const labelInput = container.querySelector(`input[aria-label="select test1 label"]`);
+    expect(labelInput).not.toBeNull();
+    expect(labelInput).toBeInTheDocument();
+
+    if (labelInput) {
+      await user.type(labelInput, 'C');
+      expect(updateFilter).toHaveBeenCalledWith({ ...filter, label: 'C' });
+    }
+  });
+
+  it('should not render the label input when showLabel is not set', async () => {
+    const filter: TraceqlFilter = { id: 'test1', valueType: 'string', tag: 'test-tag' };
+
+    const { container } = renderSearchField(jest.fn(), filter);
+
+    await waitFor(async () => {
+      expect(container.querySelector(`input[aria-label="select test1 label"]`)).not.toBeInTheDocument();
+    });
+  });
+
   it('should provide intrinsic as a selectable scope', async () => {
     const updateFilter = jest.fn((val) => {
       return val;
@@ -329,7 +357,8 @@ const renderSearchField = (
   tags?: string[],
   hideTag?: boolean,
   lp?: LanguageProvider,
-  isMulti?: boolean
+  isMulti?: boolean,
+  showLabel?: boolean
 ) => {
   const languageProvider =
     lp ||
@@ -373,6 +402,7 @@ const renderSearchField = (
       setError={() => {}}
       tags={tags || []}
       hideTag={hideTag}
+      showLabel={showLabel}
       query={'{}'}
       addVariablesToOptions={true}
       isMulti={isMulti}
