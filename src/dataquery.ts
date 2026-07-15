@@ -122,6 +122,10 @@ export interface TraceqlFilter {
    */
   isCustomValue?: boolean;
   /**
+   * A custom label to display for the filter in the search editor. When set, it overrides the auto-generated title derived from the tag.
+   */
+  label?: string;
+  /**
    * The operator that connects the tag to the value, for example: =, >, !=, =~
    */
   operator?: string;

@@ -98,6 +98,10 @@ export const filterScopedTag = (f: TraceqlFilter, lp: TempoLanguageProvider) => 
 };
 
 export const filterTitle = (f: TraceqlFilter, lp: TempoLanguageProvider) => {
+  // A custom label set in the datasource configuration takes precedence over the auto-generated title
+  if (f.label?.trim()) {
+    return f.label;
+  }
   // Special case for the intrinsic "name" since a label called "Name" isn't explicit
   if (f.tag === 'name') {
     return 'Span Name';

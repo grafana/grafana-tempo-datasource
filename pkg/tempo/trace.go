@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -75,7 +76,7 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 
 	if resp.StatusCode != http.StatusOK {
 		ctxLogger.Error("Failed to get trace", "error", err, "function", logEntrypoint())
-		err := fmt.Errorf("failed to get trace with id: %s Status: %s Body: %s", *model.Query, resp.Status, string(traceBody))
+		err := fmt.Errorf("failed to get trace with id: %s Status: %s Body: %s", *model.Query, resp.Status, describeErrorBody(resp, traceBody))
 
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -153,6 +154,28 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 	result.Frames = frames
 	ctxLogger.Debug("Successfully got trace", "function", logEntrypoint())
 	return result, nil
+}
+
+// isHTMLResponse reports whether a response body is an HTML document rather than
+// a Tempo API error. This happens when the Tempo instance is unavailable or a
+// proxy/gateway returns an error page instead of a JSON API error.
+func isHTMLResponse(resp *http.Response, body []byte) bool {
+	if resp != nil && strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "text/html") {
+		return true
+	}
+	trimmed := strings.ToLower(strings.TrimSpace(string(body)))
+	return strings.HasPrefix(trimmed, "<!doctype html") || strings.HasPrefix(trimmed, "<html")
+}
+
+// describeErrorBody returns a description of a non-2xx Tempo response body for
+// use in error messages. Raw HTML pages are replaced with a user-friendly hint
+// instead of being dumped into the UI; JSON/plain error details from Tempo are
+// preserved so the actual error reason still reaches the user.
+func describeErrorBody(resp *http.Response, body []byte) string {
+	if isHTMLResponse(resp, body) {
+		return "the Tempo instance may be unavailable or a proxy/gateway returned an HTML error page"
+	}
+	return string(body)
 }
 
 func (ds *DataSource) performTraceRequest(ctx context.Context, dsInfo *DatasourceInfo, apiVersion TraceRequestApiVersion, model *dataquery.TempoQuery, query backend.DataQuery, span trace.Span) (*http.Response, []byte, error) {
