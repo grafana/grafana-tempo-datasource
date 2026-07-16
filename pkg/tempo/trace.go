@@ -230,27 +230,22 @@ func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo,
 		return nil, backend.DownstreamErrorf("invalid trace id")
 	}
 
-	var rawUrl string
-	var err error
-	if apiVersion == TraceRequestApiVersionV1 {
-		rawUrl, err = url.JoinPath(dsInfo.URL, "api", "traces", traceID)
-	} else {
-		rawUrl, err = url.JoinPath(dsInfo.URL, "api", "v2", "traces", traceID)
-	}
+	baseUrl, err := url.Parse(dsInfo.URL)
 	if err != nil {
-		ctxLogger.Error("Failed to build trace URL", "error", err, "function", logEntrypoint())
-		return nil, err
+		ctxLogger.Error("Failed to parse trace URL", "url", dsInfo.URL, "error", err, "function", logEntrypoint())
+		return nil, fmt.Errorf("invalid base URL: %w", err)
 	}
 
-	traceUrl, err := url.Parse(rawUrl)
-	if err != nil {
-		ctxLogger.Error("Failed to parse trace URL", "url", rawUrl, "error", err, "function", logEntrypoint())
-		return nil, err
+	var traceUrl *url.URL
+	if apiVersion == TraceRequestApiVersionV1 {
+		traceUrl = baseUrl.JoinPath("api", "traces", traceID)
+	} else {
+		traceUrl = baseUrl.JoinPath("api", "v2", "traces", traceID)
 	}
 
 	// Only add the time range when both bounds are set. Using url.Values keeps any
 	// query parameters already present in the configured data source URL instead of
-	// clobbering them with a second "?" (see PR #212 review).
+	// clobbering them with a second "?".
 	if start != 0 && end != 0 {
 		q := traceUrl.Query()
 		q.Set("start", strconv.FormatInt(start, 10))
