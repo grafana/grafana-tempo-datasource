@@ -3,7 +3,7 @@ services:
   # They mirror grafana/grafana's devenv/docker/blocks/tempo setup so the plugin
   # has trace data to query during development.
   db:
-    image: grafana/tns-db:9c1ab38
+    image: grafana/tns-db:9c1ab38@sha256:415d0446500629b28b5dc88b2e431cc31223f880a8e020b6ff325efc79bdaa4f
     command:
       - '-log.level=debug'
     ports:
@@ -17,7 +17,7 @@ services:
       - tempo
 
   app:
-    image: grafana/tns-app:9c1ab38
+    image: grafana/tns-app:9c1ab38@sha256:f6375deaa434b526b40da07e13abdccb4111b79f77d5cb3a6b7b9106804f2347
     command:
       - '-log.level=debug'
       - 'http://db'
@@ -32,7 +32,7 @@ services:
       JAEGER_SAMPLER_PARAM: 1
 
   loadgen:
-    image: grafana/tns-loadgen:9c1ab38
+    image: grafana/tns-loadgen:9c1ab38@sha256:8e7e80245fa0b14a4c405cdbbe41b1f7ce82ef2865c14cdfdb6928c23f149485
     command:
       - '-log.level=debug'
       - 'http://app'
@@ -54,7 +54,7 @@ services:
     # the `tempo` hostname and the e2e Save & test health check fails with
     # `dial tcp: lookup tempo on 127.0.0.11:53: no such host`. Match the pin
     # used by grafana/grafana devenv/frontend-service/docker-compose.yaml.
-    image: grafana/tempo:2.10.5@sha256:ee21727732c7a7199cb71c3eee9153bbf23f9b0b87619f0555a0cf21a67f1a33
+    image: grafana/tempo:2.10.7@sha256:032b3acb51ed02c4b801473d54bb63e9e9f13738d215126d9843c30283794f4b
     command: -config.file=/etc/tempo.yaml
     ports:
       - '3200:3200'   # tempo HTTP
@@ -70,7 +70,7 @@ services:
   # tests in CI. Match the pin used by grafana/grafana
   # devenv/frontend-service/docker-compose.yaml.
   prometheus:
-    image: prom/prometheus:v3.11.3@sha256:e4254400b85610324913f0dc4acf92603d9984e7519414c5a12811aa6146acc3
+    image: prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893
     command:
       - --config.file=/etc/prometheus.yaml
       - --web.enable-remote-write-receiver
