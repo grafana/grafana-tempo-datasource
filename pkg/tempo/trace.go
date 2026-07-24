@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gogo/protobuf/proto"
@@ -223,26 +225,35 @@ const (
 
 func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo, apiVersion TraceRequestApiVersion, traceID string, start int64, end int64) (*http.Request, error) {
 	ctxLogger := ds.logger.FromContext(ctx)
-	var baseUrl string
-	var tempoQuery string
 
 	if !traceIDPattern.MatchString(traceID) {
 		return nil, backend.DownstreamErrorf("invalid trace id")
 	}
 
+	baseUrl, err := url.Parse(dsInfo.URL)
+	if err != nil {
+		ctxLogger.Error("Failed to parse trace URL", "url", dsInfo.URL, "error", err, "function", logEntrypoint())
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	var traceUrl *url.URL
 	if apiVersion == TraceRequestApiVersionV1 {
-		baseUrl = fmt.Sprintf("%s/api/traces/%s", dsInfo.URL, traceID)
+		traceUrl = baseUrl.JoinPath("api", "traces", traceID)
 	} else {
-		baseUrl = fmt.Sprintf("%s/api/v2/traces/%s", dsInfo.URL, traceID)
+		traceUrl = baseUrl.JoinPath("api", "v2", "traces", traceID)
 	}
 
-	if start == 0 || end == 0 {
-		tempoQuery = baseUrl
-	} else {
-		tempoQuery = fmt.Sprintf("%s?start=%d&end=%d", baseUrl, start, end)
+	// Only add the time range when both bounds are set. Using url.Values keeps any
+	// query parameters already present in the configured data source URL instead of
+	// clobbering them with a second "?".
+	if start != 0 && end != 0 {
+		q := traceUrl.Query()
+		q.Set("start", strconv.FormatInt(start, 10))
+		q.Set("end", strconv.FormatInt(end, 10))
+		traceUrl.RawQuery = q.Encode()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", tempoQuery, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", traceUrl.String(), nil)
 	if err != nil {
 		ctxLogger.Error("Failed to create request", "error", err, "function", logEntrypoint())
 		return nil, err

@@ -177,12 +177,12 @@ func (ds *DataSource) createMetricsQuery(ctx context.Context, dsInfo *Datasource
 		queryType = "query"
 	}
 
-	rawUrl := fmt.Sprintf("%s/api/metrics/%s", dsInfo.URL, queryType)
-	searchUrl, err := url.Parse(rawUrl)
+	baseUrl, err := url.Parse(dsInfo.URL)
 	if err != nil {
-		ctxLogger.Error("Failed to parse URL", "url", rawUrl, "error", err, "function", logEntrypoint())
-		return nil, err
+		ctxLogger.Error("Failed to parse metrics URL", "url", dsInfo.URL, "error", err, "function", logEntrypoint())
+		return nil, fmt.Errorf("invalid base URL: %w", err)
 	}
+	searchUrl := baseUrl.JoinPath("api", "metrics", queryType)
 
 	q := searchUrl.Query()
 	q.Set("q", *query.Query)
