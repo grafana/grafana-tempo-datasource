@@ -34,6 +34,13 @@ interface Props {
   range?: TimeRange;
   timeRangeForTags?: number;
 }
+// TraceQL requires string values to be quoted while numeric values are bare.
+// When a custom value is typed and the tag-values response provided no type to
+// reuse (e.g. preceding filters narrowed the results down to none), infer the
+// type from the value itself so string values are still serialized with quotes.
+export const inferCustomValueType = (value: string): string | undefined =>
+  value.trim() !== '' && !isNaN(Number(value)) ? undefined : 'string';
+
 const SearchField = ({
   filter,
   datasource,
@@ -263,7 +270,7 @@ const SearchField = ({
               updateFilter({
                 ...filter,
                 value: Array.isArray(filter.value) ? filter.value?.concat(val) : val,
-                valueType: uniqueOptionType,
+                valueType: uniqueOptionType ?? inferCustomValueType(val),
                 isCustomValue: true,
               });
             }}
