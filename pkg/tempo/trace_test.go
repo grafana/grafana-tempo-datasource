@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/stretchr/testify/assert"
@@ -65,7 +66,12 @@ func TestTempo(t *testing.T) {
 		pluginCtx := backend.PluginContext{
 			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{URL: server.URL},
 		}
-		query := backend.DataQuery{JSON: []byte(`{"query": "abc123"}`)}
+		from := time.Unix(1000, 0).UTC()
+		to := time.Unix(2000, 0).UTC()
+		query := backend.DataQuery{
+			JSON:      []byte(`{"query": "abc123"}`),
+			TimeRange: backend.TimeRange{From: from, To: to},
+		}
 
 		res, err := service.getTrace(context.Background(), pluginCtx, query)
 
@@ -73,6 +79,12 @@ func TestTempo(t *testing.T) {
 		assert.Nil(t, res)
 		require.Error(t, err)
 		assert.True(t, backend.IsDownstreamError(err))
+		// When no trace is found the error should mention the searched time range
+		// and hint that the trace may exist outside of it (issue #176).
+		assert.Contains(t, err.Error(), "abc123")
+		assert.Contains(t, err.Error(), from.Format(time.RFC3339))
+		assert.Contains(t, err.Error(), to.Format(time.RFC3339))
+		assert.Contains(t, err.Error(), "outside")
 	})
 
 	t.Run("getTrace non-200 HTML response returns friendly error without raw HTML", func(t *testing.T) {

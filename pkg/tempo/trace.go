@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -109,7 +110,7 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 
 		if frame == nil {
 			result.Status = http.StatusNotFound
-			err := fmt.Errorf("failed to get trace with id: %s Status: %s", *model.Query, result.Status)
+			err := traceNotFoundError(*model.Query, query.TimeRange)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return nil, backend.DownstreamError(err)
@@ -135,7 +136,7 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 
 		if frame == nil {
 			result.Status = http.StatusNotFound
-			err := fmt.Errorf("failed to get trace with id: %s Status: %s", *model.Query, result.Status)
+			err := traceNotFoundError(*model.Query, query.TimeRange)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return nil, backend.DownstreamError(err)
@@ -152,6 +153,19 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 	result.Frames = frames
 	ctxLogger.Debug("Successfully got trace", "function", logEntrypoint())
 	return result, nil
+}
+
+// traceNotFoundError builds the error returned when Tempo responds successfully
+// but the trace has no spans. It includes the searched time range and notes the
+// trace may exist outside of it, which is helpful when a time shift is applied
+// to the trace-by-id request (issue #176).
+func traceNotFoundError(traceID string, timeRange backend.TimeRange) error {
+	return fmt.Errorf(
+		"trace with id %s not found in the selected time range [%s to %s]; it may exist outside this range",
+		traceID,
+		timeRange.From.Format(time.RFC3339),
+		timeRange.To.Format(time.RFC3339),
+	)
 }
 
 // isHTMLResponse reports whether a response body is an HTML document rather than
