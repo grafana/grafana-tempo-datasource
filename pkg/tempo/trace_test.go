@@ -87,6 +87,43 @@ func TestTempo(t *testing.T) {
 		assert.Contains(t, err.Error(), "outside")
 	})
 
+	t.Run("getTrace with zero time range omits the range from the not-found error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/api/v2/traces/") {
+				w.WriteHeader(http.StatusNotFound) // trigger v1 fallback
+			} else if strings.Contains(r.URL.Path, "/api/traces/") {
+				w.WriteHeader(http.StatusOK) // empty body → empty ResourceSpans → nil frame
+			}
+		}))
+		defer server.Close()
+
+		service := &DataSource{
+			info:   &DatasourceInfo{URL: server.URL, HTTPClient: server.Client()},
+			logger: backend.NewLoggerWith("logger", "tempo-test"),
+		}
+
+		pluginCtx := backend.PluginContext{
+			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{URL: server.URL},
+		}
+		// Zero range: with time shift off (the default) the frontend zeroes the
+		// range, so no range is actually applied and Tempo searches all time.
+		query := backend.DataQuery{
+			JSON:      []byte(`{"query": "abc123"}`),
+			TimeRange: backend.TimeRange{From: time.Unix(0, 0).UTC(), To: time.Unix(0, 0).UTC()},
+		}
+
+		res, err := service.getTrace(context.Background(), pluginCtx, query)
+
+		assert.Nil(t, res)
+		require.Error(t, err)
+		assert.True(t, backend.IsDownstreamError(err))
+		assert.Contains(t, err.Error(), "abc123")
+		// No range was applied, so the misleading [1970-.. to 1970-..] window and
+		// the "outside" hint must not appear.
+		assert.NotContains(t, err.Error(), "1970")
+		assert.NotContains(t, err.Error(), "outside")
+	})
+
 	t.Run("getTrace non-200 HTML response returns friendly error without raw HTML", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")

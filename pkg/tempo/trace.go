@@ -109,7 +109,6 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 		}
 
 		if frame == nil {
-			result.Status = http.StatusNotFound
 			err := traceNotFoundError(*model.Query, query.TimeRange)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
@@ -135,7 +134,6 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 		}
 
 		if frame == nil {
-			result.Status = http.StatusNotFound
 			err := traceNotFoundError(*model.Query, query.TimeRange)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
@@ -156,10 +154,18 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 }
 
 // traceNotFoundError builds the error returned when Tempo responds successfully
-// but the trace has no spans. It includes the searched time range and notes the
-// trace may exist outside of it, which is helpful when a time shift is applied
-// to the trace-by-id request (issue #176).
+// but the trace has no spans. When a real time range is set it is included, with
+// a note that the trace may exist outside of it, which is helpful when a time
+// shift is applied to the trace-by-id request (issue #176).
+//
+// A zero bound means no range was applied: createRequest omits start/end when
+// either is zero (the frontend zeroes the range when time shift is off, which is
+// the default), so Tempo searches all time. Reporting a [1970-.. to 1970-..]
+// range in that case is misleading, so fall back to a plain message.
 func traceNotFoundError(traceID string, timeRange backend.TimeRange) error {
+	if timeRange.From.Unix() == 0 || timeRange.To.Unix() == 0 {
+		return fmt.Errorf("trace with id %s not found", traceID)
+	}
 	return fmt.Errorf(
 		"trace with id %s not found in the selected time range [%s to %s]; it may exist outside this range",
 		traceID,
