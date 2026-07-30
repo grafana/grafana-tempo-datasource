@@ -25,7 +25,10 @@ export interface TempoJsonData extends DataSourceJsonData {
   streamingEnabled?: {
     search?: boolean;
   };
-  timeRangeForTags?: number;
+  // Stored as a number of seconds by the datasource UI, but may be provisioned
+  // as a duration string (e.g. "3d", "30m") via YAML. Normalised through
+  // parseTimeRangeForTags before use.
+  timeRangeForTags?: number | string;
 }
 
 export interface TempoQuery extends TempoBase {
