@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -108,8 +109,7 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 		}
 
 		if frame == nil {
-			result.Status = http.StatusNotFound
-			err := fmt.Errorf("failed to get trace with id: %s Status: %s", *model.Query, result.Status)
+			err := traceNotFoundError(*model.Query, query.TimeRange)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return nil, backend.DownstreamError(err)
@@ -134,8 +134,7 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 		}
 
 		if frame == nil {
-			result.Status = http.StatusNotFound
-			err := fmt.Errorf("failed to get trace with id: %s Status: %s", *model.Query, result.Status)
+			err := traceNotFoundError(*model.Query, query.TimeRange)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return nil, backend.DownstreamError(err)
@@ -152,6 +151,27 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 	result.Frames = frames
 	ctxLogger.Debug("Successfully got trace", "function", logEntrypoint())
 	return result, nil
+}
+
+// traceNotFoundError builds the error returned when Tempo responds successfully
+// but the trace has no spans. When a real time range is set it is included, with
+// a note that the trace may exist outside of it, which is helpful when a time
+// shift is applied to the trace-by-id request (issue #176).
+//
+// A zero bound means no range was applied: createRequest omits start/end when
+// either is zero (the frontend zeroes the range when time shift is off, which is
+// the default), so Tempo searches all time. Reporting a [1970-.. to 1970-..]
+// range in that case is misleading, so fall back to a plain message.
+func traceNotFoundError(traceID string, timeRange backend.TimeRange) error {
+	if timeRange.From.Unix() == 0 || timeRange.To.Unix() == 0 {
+		return fmt.Errorf("trace with id %s not found", traceID)
+	}
+	return fmt.Errorf(
+		"trace with id %s not found in the selected time range [%s to %s]; it may exist outside this range",
+		traceID,
+		timeRange.From.Format(time.RFC3339),
+		timeRange.To.Format(time.RFC3339),
+	)
 }
 
 // isHTMLResponse reports whether a response body is an HTML document rather than
