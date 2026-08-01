@@ -349,6 +349,97 @@ describe('SearchField', () => {
       });
     }
   });
+
+  it('treats a non-numeric custom value as a string when no typed options are available', async () => {
+    const updateFilter = jest.fn((val) => {
+      return val;
+    });
+    // Fresh filter with no resolved valueType, e.g. a tag added after other
+    // filters whose combination returns no tag values to choose from.
+    const filter: TraceqlFilter = { id: 'test1', tag: 'test-tag' };
+    const lp = {
+      getOptionsV2: jest.fn().mockReturnValue([]),
+      getIntrinsics: jest.fn().mockReturnValue(['duration']),
+      getTags: jest.fn().mockReturnValue(['cluster']),
+    } as unknown as TempoLanguageProvider;
+
+    const { container } = renderSearchField(updateFilter, filter, [], false, lp, false);
+
+    const select = container.querySelector(`input[aria-label="select test1 value"]`);
+    expect(select).toBeInTheDocument();
+
+    if (select) {
+      await user.type(select, 'json');
+      await user.keyboard('{Enter}');
+
+      expect(updateFilter).toHaveBeenCalledWith({
+        ...filter,
+        value: 'json',
+        valueType: 'string',
+        isCustomValue: true,
+      });
+    }
+  });
+
+  it('does not force a string type on a numeric custom value', async () => {
+    const updateFilter = jest.fn((val) => {
+      return val;
+    });
+    const filter: TraceqlFilter = { id: 'test1', tag: 'test-tag' };
+    const lp = {
+      getOptionsV2: jest.fn().mockReturnValue([]),
+      getIntrinsics: jest.fn().mockReturnValue(['duration']),
+      getTags: jest.fn().mockReturnValue(['cluster']),
+    } as unknown as TempoLanguageProvider;
+
+    const { container } = renderSearchField(updateFilter, filter, [], false, lp, false);
+
+    const select = container.querySelector(`input[aria-label="select test1 value"]`);
+    expect(select).toBeInTheDocument();
+
+    if (select) {
+      await user.type(select, '200');
+      await user.keyboard('{Enter}');
+
+      expect(updateFilter).toHaveBeenCalledWith({
+        ...filter,
+        value: '200',
+        valueType: undefined,
+        isCustomValue: true,
+      });
+    }
+  });
+
+  it('does not force a string type on a boolean custom value', async () => {
+    const updateFilter = jest.fn((val) => {
+      return val;
+    });
+    const filter: TraceqlFilter = { id: 'test1', tag: 'test-tag' };
+    const lp = {
+      getOptionsV2: jest.fn().mockReturnValue([]),
+      getIntrinsics: jest.fn().mockReturnValue(['duration']),
+      getTags: jest.fn().mockReturnValue(['cluster']),
+    } as unknown as TempoLanguageProvider;
+
+    const { container } = renderSearchField(updateFilter, filter, [], false, lp, false);
+
+    const select = container.querySelector(`input[aria-label="select test1 value"]`);
+    expect(select).toBeInTheDocument();
+
+    if (select) {
+      await user.type(select, 'true');
+      await user.keyboard('{Enter}');
+
+      // TraceQL bool literals must be bare; quoting them (valueType 'string')
+      // silently matches nothing on boolean attributes.
+      expect(updateFilter).toHaveBeenCalledWith({
+        ...filter,
+        value: 'true',
+        valueType: undefined,
+        isCustomValue: true,
+      });
+    }
+  });
 });
 
 const renderSearchField = (

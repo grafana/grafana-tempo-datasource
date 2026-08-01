@@ -34,6 +34,25 @@ interface Props {
   range?: TimeRange;
   timeRangeForTags?: number;
 }
+// TraceQL requires string values to be quoted while numeric and boolean values
+// are bare. When a custom value is typed and the tag-values response provided no
+// type to reuse (e.g. preceding filters narrowed the results down to none), infer
+// the type from the value itself so string values are still serialized with
+// quotes while numbers and booleans stay bare.
+// This only distinguishes numeric/boolean from string; it cannot detect keyword
+// intrinsics such as `kind`, where `{kind=server}` is valid but `{kind="server"}`
+// is a Tempo type error. Those still fall through to 'string'.
+export const inferCustomValueType = (value: string): string | undefined => {
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return 'string';
+  }
+  if (!isNaN(Number(trimmed)) || trimmed === 'true' || trimmed === 'false') {
+    return undefined;
+  }
+  return 'string';
+};
+
 const SearchField = ({
   filter,
   datasource,
@@ -263,7 +282,7 @@ const SearchField = ({
               updateFilter({
                 ...filter,
                 value: Array.isArray(filter.value) ? filter.value?.concat(val) : val,
-                valueType: uniqueOptionType,
+                valueType: uniqueOptionType ?? inferCustomValueType(val),
                 isCustomValue: true,
               });
             }}
