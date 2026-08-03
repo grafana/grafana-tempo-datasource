@@ -12,6 +12,7 @@ import {
 import {
   transformToOTLP,
   transformFromOTLP,
+  parseUploadedTraceData,
   createTableFrameFromTraceQlQuery,
   createTableFrameFromTraceQlQueryAsSpans,
 } from './resultTransformer';
@@ -96,6 +97,92 @@ describe('transformToOTLP()', () => {
   });
 });
 
+describe('parseUploadedTraceData()', () => {
+  const modernRecord = {
+    resourceSpans: [
+      {
+        resource: { attributes: [{ key: 'service.name', value: { stringValue: 'db' } }] },
+        scopeSpans: [
+          {
+            scope: { name: 'lib', version: '1.0' },
+            spans: [{ traceId: 'abc', spanId: 'def', name: 'GET /api' }],
+          },
+        ],
+      },
+    ],
+  };
+
+  test('accepts the modern OTLP/JSON schema (resourceSpans/scopeSpans/scope)', () => {
+    const result = parseUploadedTraceData(JSON.stringify(modernRecord));
+    expect(result).toHaveLength(1);
+    // Normalized to the legacy shape transformFromOTLP consumes.
+    expect(result![0].instrumentationLibrarySpans[0].instrumentationLibrary).toEqual({
+      name: 'lib',
+      version: '1.0',
+    });
+    expect(result![0].instrumentationLibrarySpans[0].spans[0]).toMatchObject({ name: 'GET /api' });
+  });
+
+  test('accepts the legacy batches schema and preserves spans', () => {
+    const result = parseUploadedTraceData(JSON.stringify(otlpResponse));
+    expect(result).toHaveLength(otlpResponse.batches.length);
+    // Content, not just length: the legacy instrumentationLibrarySpans/spans survive normalization.
+    expect(result![0].instrumentationLibrarySpans[0].spans).toEqual(
+      otlpResponse.batches[0].instrumentationLibrarySpans[0].spans
+    );
+  });
+
+  test('merges newline-delimited records emitted by the file trace exporter', () => {
+    // Two distinct records so the assertion detects a dropped/duplicated line.
+    const second = {
+      resourceSpans: [
+        {
+          resource: { attributes: [{ key: 'service.name', value: { stringValue: 'web' } }] },
+          scopeSpans: [{ scope: { name: 'lib2' }, spans: [{ traceId: '01', spanId: '02', name: 'POST /x' }] }],
+        },
+      ],
+    };
+    const jsonl = `${JSON.stringify(modernRecord)}\n${JSON.stringify(second)}\n`;
+    const result = parseUploadedTraceData(jsonl);
+    expect(result).toHaveLength(2);
+    expect(result![0].instrumentationLibrarySpans[0].spans[0]).toMatchObject({ name: 'GET /api' });
+    expect(result![1].instrumentationLibrarySpans[0].spans[0]).toMatchObject({ name: 'POST /x' });
+  });
+
+  test('accepts pretty-printed (multi-line) modern JSON', () => {
+    // e.g. a file run through `jq`, where splitting on newlines would break parsing.
+    const result = parseUploadedTraceData(JSON.stringify(modernRecord, null, 2));
+    expect(result).toHaveLength(1);
+    expect(result![0].instrumentationLibrarySpans[0].spans[0]).toMatchObject({ name: 'GET /api' });
+  });
+
+  test('accepts pretty-printed (multi-line) legacy batches JSON', () => {
+    const result = parseUploadedTraceData(JSON.stringify(otlpResponse, null, 2));
+    expect(result).toHaveLength(otlpResponse.batches.length);
+  });
+
+  test('returns null for non-trace data (e.g. service graph dataframes)', () => {
+    expect(parseUploadedTraceData(JSON.stringify([{ meta: { preferredVisualisationType: 'nodeGraph' } }]))).toBeNull();
+    expect(parseUploadedTraceData('not json')).toBeNull();
+  });
+
+  test('returns null (does not throw) for parseable non-object input', () => {
+    // JSON.parse yields null / a primitive; reading fields off these would throw
+    // if not guarded, so assert they return null instead.
+    expect(parseUploadedTraceData('null')).toBeNull();
+    expect(parseUploadedTraceData('42')).toBeNull();
+    expect(parseUploadedTraceData('"a string"')).toBeNull();
+    expect(parseUploadedTraceData('{}')).toBeNull();
+  });
+
+  test('returns null when a record has no recognized spans container', () => {
+    // resourceSpans present but the entry uses neither scopeSpans nor the legacy
+    // instrumentationLibrarySpans (e.g. snake_case), so it is unsupported.
+    const malformed = { resourceSpans: [{ resource: {}, instrumentation_library_spans: [] }] };
+    expect(parseUploadedTraceData(JSON.stringify(malformed))).toBeNull();
+  });
+});
+
 describe('transformFromOTLP()', () => {
   test('transforms OTLP format to dataFrame', () => {
     const res = transformFromOTLP(
@@ -106,6 +193,32 @@ describe('transformFromOTLP()', () => {
       ...otlpDataFrameFromResponse,
       creator: expect.any(Function),
     });
+  });
+
+  test('handles empty arrayValue attributes emitted by proto3 OTLP/JSON', () => {
+    // Spec-compliant OTLP/JSON omits empty repeated fields, so an empty array
+    // attribute arrives as {"arrayValue":{}} with no `values`. This must not
+    // fail the transform (which would surface as "JSON is not valid OpenTelemetry format").
+    const traceData = [
+      {
+        resource: {
+          attributes: [
+            { key: 'service.name', value: { stringValue: 'db' } },
+            { key: 'empty.list', value: { arrayValue: {} } },
+          ],
+        },
+        instrumentationLibrarySpans: [
+          {
+            instrumentationLibrary: { name: 'lib' },
+            spans: [{ traceId: 'a', spanId: 'b', name: 'op', startTimeUnixNano: 1, endTimeUnixNano: 2 }],
+          },
+        ],
+      },
+    ] as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[];
+
+    const res = transformFromOTLP(traceData, false);
+    expect(res.error).toBeUndefined();
+    expect(res.data[0].length).toBe(1);
   });
 
   test('extracts service.namespace from resource attributes into serviceNamespace column', () => {

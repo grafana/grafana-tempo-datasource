@@ -48,7 +48,10 @@ function getAttributeValue(value: collectorTypes.opentelemetryProto.common.v1.An
 
   if (value.arrayValue) {
     const arrayValue = [];
-    for (const arValue of value.arrayValue.values) {
+    // OTLP/JSON follows proto3 JSON, which omits empty repeated fields, so an
+    // empty array arrives as `{"arrayValue":{}}` with no `values`. Default to an
+    // empty list instead of iterating undefined.
+    for (const arValue of value.arrayValue.values ?? []) {
       arrayValue.push(getAttributeValue(arValue));
     }
     return arrayValue;
@@ -133,6 +136,106 @@ function getLogs(span: collectorTypes.opentelemetryProto.trace.v1.Span) {
   }
 
   return logs;
+}
+
+// Minimal shape of an uploaded OTLP/JSON trace record. Grafana's file trace
+// exporter emits the modern schema (resourceSpans/scopeSpans/scope); older
+// tooling uses batches/instrumentationLibrarySpans/instrumentationLibrary.
+interface OtlpScope {
+  name?: string;
+  version?: string;
+}
+interface OtlpScopeSpans {
+  scope?: OtlpScope;
+  instrumentationLibrary?: OtlpScope;
+  spans?: collectorTypes.opentelemetryProto.trace.v1.Span[];
+}
+interface OtlpResourceSpans {
+  resource?: collectorTypes.opentelemetryProto.resource.v1.Resource;
+  scopeSpans?: OtlpScopeSpans[];
+  instrumentationLibrarySpans?: OtlpScopeSpans[];
+}
+interface OtlpTraceRecord {
+  resourceSpans?: OtlpResourceSpans[];
+  batches?: OtlpResourceSpans[];
+}
+
+/**
+ * Parses an uploaded trace file into the ResourceSpans shape transformFromOTLP
+ * expects. Accepts both the modern OTLP/JSON schema (resourceSpans/scopeSpans)
+ * and the legacy one (batches/instrumentationLibrarySpans). The file can be a
+ * single JSON document (compact or pretty-printed, for example from `jq`) or
+ * newline-delimited records (one ExportTraceServiceRequest per line) as emitted
+ * by the file trace exporter. Returns null if the input is not trace data.
+ */
+export function parseUploadedTraceData(raw: string): collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] | null {
+  // Try the whole file as a single JSON document first. This covers compact and
+  // pretty-printed JSON, where splitting on newlines would break parsing.
+  const whole = parseTraceRecord(raw);
+  if (whole) {
+    return whole;
+  }
+
+  // Otherwise treat the file as newline-delimited records. A single JSON document
+  // fails the whole-file parse only when it spans multiple top-level records, so
+  // this branch handles the file exporter's newline-delimited output.
+  const resourceSpans: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] = [];
+  const lines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  for (const line of lines) {
+    const record = parseTraceRecord(line);
+    if (!record) {
+      return null;
+    }
+    resourceSpans.push(...record);
+  }
+
+  return resourceSpans.length > 0 ? resourceSpans : null;
+}
+
+/**
+ * Parses a single JSON document into normalized ResourceSpans, or null if it
+ * isn't trace data. Shared by the whole-file and per-line paths.
+ */
+function parseTraceRecord(text: string): collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] | null {
+  let record: OtlpTraceRecord;
+  try {
+    record = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  // JSON.parse can yield null or a primitive (e.g. the input is `null` or `5`);
+  // typeof null is "object", so guard it explicitly before reading fields.
+  if (record === null || typeof record !== 'object') {
+    return null;
+  }
+  const spans = record.resourceSpans ?? record.batches;
+  if (!Array.isArray(spans)) {
+    return null;
+  }
+
+  const resourceSpans: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] = [];
+  for (const rs of spans) {
+    // Accept either the modern (scopeSpans) or legacy (instrumentationLibrarySpans)
+    // key; anything else is malformed/unsupported and should surface as an error.
+    const scopeSpans = rs.scopeSpans ?? rs.instrumentationLibrarySpans;
+    if (!Array.isArray(scopeSpans)) {
+      return null;
+    }
+    resourceSpans.push({
+      resource: rs.resource,
+      instrumentationLibrarySpans: scopeSpans.map((ss) => {
+        const library = ss.scope ?? ss.instrumentationLibrary;
+        return {
+          instrumentationLibrary: library ? { name: library.name ?? '', version: library.version } : undefined,
+          spans: ss.spans ?? [],
+        };
+      }),
+    });
+  }
+  return resourceSpans.length > 0 ? resourceSpans : null;
 }
 
 export function transformFromOTLP(
