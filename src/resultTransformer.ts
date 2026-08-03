@@ -163,53 +163,78 @@ interface OtlpTraceRecord {
 /**
  * Parses an uploaded trace file into the ResourceSpans shape transformFromOTLP
  * expects. Accepts both the modern OTLP/JSON schema (resourceSpans/scopeSpans)
- * and the legacy one (batches/instrumentationLibrarySpans), and tolerates
+ * and the legacy one (batches/instrumentationLibrarySpans). The file can be a
+ * single JSON document (compact or pretty-printed, for example from `jq`) or
  * newline-delimited records (one ExportTraceServiceRequest per line) as emitted
  * by the file trace exporter. Returns null if the input is not trace data.
  */
 export function parseUploadedTraceData(raw: string): collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] | null {
+  // Try the whole file as a single JSON document first. This covers compact and
+  // pretty-printed JSON, where splitting on newlines would break parsing.
+  const whole = parseTraceRecord(raw);
+  if (whole) {
+    return whole;
+  }
+
+  // Otherwise treat the file as newline-delimited records. A single JSON document
+  // fails the whole-file parse only when it spans multiple top-level records, so
+  // this branch handles the file exporter's newline-delimited output.
+  const resourceSpans: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] = [];
   const lines = raw
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-
-  const resourceSpans: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] = [];
   for (const line of lines) {
-    let record: OtlpTraceRecord;
-    try {
-      record = JSON.parse(line);
-    } catch {
+    const record = parseTraceRecord(line);
+    if (!record) {
       return null;
     }
-    // JSON.parse can yield null or a primitive (e.g. the line is `null` or `5`);
-    // typeof null is "object", so guard it explicitly before reading fields.
-    if (record === null || typeof record !== 'object') {
-      return null;
-    }
-    const spans = record.resourceSpans ?? record.batches;
-    if (!Array.isArray(spans)) {
-      return null;
-    }
-    for (const rs of spans) {
-      // Accept either the modern (scopeSpans) or legacy (instrumentationLibrarySpans)
-      // key; anything else is malformed/unsupported and should surface as an error.
-      const scopeSpans = rs.scopeSpans ?? rs.instrumentationLibrarySpans;
-      if (!Array.isArray(scopeSpans)) {
-        return null;
-      }
-      resourceSpans.push({
-        resource: rs.resource,
-        instrumentationLibrarySpans: scopeSpans.map((ss) => {
-          const library = ss.scope ?? ss.instrumentationLibrary;
-          return {
-            instrumentationLibrary: library ? { name: library.name ?? '', version: library.version } : undefined,
-            spans: ss.spans ?? [],
-          };
-        }),
-      });
-    }
+    resourceSpans.push(...record);
   }
 
+  return resourceSpans.length > 0 ? resourceSpans : null;
+}
+
+/**
+ * Parses a single JSON document into normalized ResourceSpans, or null if it
+ * isn't trace data. Shared by the whole-file and per-line paths.
+ */
+function parseTraceRecord(text: string): collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] | null {
+  let record: OtlpTraceRecord;
+  try {
+    record = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  // JSON.parse can yield null or a primitive (e.g. the input is `null` or `5`);
+  // typeof null is "object", so guard it explicitly before reading fields.
+  if (record === null || typeof record !== 'object') {
+    return null;
+  }
+  const spans = record.resourceSpans ?? record.batches;
+  if (!Array.isArray(spans)) {
+    return null;
+  }
+
+  const resourceSpans: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] = [];
+  for (const rs of spans) {
+    // Accept either the modern (scopeSpans) or legacy (instrumentationLibrarySpans)
+    // key; anything else is malformed/unsupported and should surface as an error.
+    const scopeSpans = rs.scopeSpans ?? rs.instrumentationLibrarySpans;
+    if (!Array.isArray(scopeSpans)) {
+      return null;
+    }
+    resourceSpans.push({
+      resource: rs.resource,
+      instrumentationLibrarySpans: scopeSpans.map((ss) => {
+        const library = ss.scope ?? ss.instrumentationLibrary;
+        return {
+          instrumentationLibrary: library ? { name: library.name ?? '', version: library.version } : undefined,
+          spans: ss.spans ?? [],
+        };
+      }),
+    });
+  }
   return resourceSpans.length > 0 ? resourceSpans : null;
 }
 
