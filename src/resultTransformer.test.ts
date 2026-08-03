@@ -149,6 +149,18 @@ describe('parseUploadedTraceData()', () => {
     expect(result![1].instrumentationLibrarySpans[0].spans[0]).toMatchObject({ name: 'POST /x' });
   });
 
+  test('accepts pretty-printed (multi-line) modern JSON', () => {
+    // e.g. a file run through `jq`, where splitting on newlines would break parsing.
+    const result = parseUploadedTraceData(JSON.stringify(modernRecord, null, 2));
+    expect(result).toHaveLength(1);
+    expect(result![0].instrumentationLibrarySpans[0].spans[0]).toMatchObject({ name: 'GET /api' });
+  });
+
+  test('accepts pretty-printed (multi-line) legacy batches JSON', () => {
+    const result = parseUploadedTraceData(JSON.stringify(otlpResponse, null, 2));
+    expect(result).toHaveLength(otlpResponse.batches.length);
+  });
+
   test('returns null for non-trace data (e.g. service graph dataframes)', () => {
     expect(parseUploadedTraceData(JSON.stringify([{ meta: { preferredVisualisationType: 'nodeGraph' } }]))).toBeNull();
     expect(parseUploadedTraceData('not json')).toBeNull();
