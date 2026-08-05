@@ -515,7 +515,7 @@ describe('Tempo service graph view', () => {
       queryType: 'traceql',
       filters: [],
       query:
-        '{span.db.name="my-service" || span.db.system="my-service" || span.peer.service="my-service" || span.messaging.system="my-service" || span.net.peer.name="my-service"}',
+        '{span.server.address="my-service" || span.service.peer.name="my-service" || span.db.system.name="my-service" || span.db.namespace="my-service" || span.network.peer.address="my-service" || span.db.name="my-service" || span.db.system="my-service" || span.peer.service="my-service" || span.messaging.system="my-service" || span.net.peer.name="my-service"}',
     });
 
     expect(response.data[2].name).toBe('Edges');
