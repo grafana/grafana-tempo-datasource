@@ -1279,7 +1279,20 @@ function makeTempoLinkServiceMap(
 
         // Only do the peer query if service is actively set as not instrumented
         if (isInstrumented === false) {
-          const filters = ['db.name', 'db.system', 'peer.service', 'messaging.system', 'net.peer.name']
+          const filters = [
+            // Current OpenTelemetry semantic conventions — what uninstrumented DB/peer nodes are keyed on
+            'server.address',
+            'service.peer.name',
+            'db.system.name',
+            'db.namespace',
+            'network.peer.address',
+            // Legacy names, kept for older instrumentation that still emits them
+            'db.name',
+            'db.system',
+            'peer.service',
+            'messaging.system',
+            'net.peer.name',
+          ]
             .map((peerAttribute) => `span.${peerAttribute}="${serviceName}"`)
             .join(' || ');
           query.queryType = 'traceql';
