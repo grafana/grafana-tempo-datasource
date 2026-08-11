@@ -123,7 +123,10 @@ func (ds *DataSource) QueryData(ctx context.Context, req *backend.QueryDataReque
 			}
 
 		default:
-			return nil, backend.DownstreamErrorf("unsupported query type: '%s' for query with refID '%s'", q.QueryType, q.RefID)
+			err = backend.DownstreamErrorf("unsupported query type: '%s' for query with refID '%s'", q.QueryType, q.RefID)
+			ctxLogger.Error("Error processing query", "error", err)
+			response.Responses[q.RefID] = backend.ErrorResponseWithErrorSource(err)
+			continue
 		}
 
 		if res != nil {

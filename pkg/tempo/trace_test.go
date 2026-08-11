@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/stretchr/testify/assert"
@@ -15,34 +16,70 @@ import (
 func TestTempo(t *testing.T) {
 	t.Run("createRequest v1 without time range - success", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{}, TraceRequestApiVersionV1, "abc123", 0, 0)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV1, "abc123", 0, 0)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
-		assert.Equal(t, "/api/traces/abc123", req.URL.String())
+		assert.Equal(t, "http://tempo/api/traces/abc123", req.URL.String())
 	})
 
 	t.Run("createRequest v1 with time range - success", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{}, TraceRequestApiVersionV1, "abc123", 1, 2)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV1, "abc123", 1, 2)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
-		assert.Equal(t, "/api/traces/abc123?start=1&end=2", req.URL.String())
+		assert.Equal(t, "http://tempo/api/traces/abc123?end=2&start=1", req.URL.String())
 	})
 
 	t.Run("createRequest v2 without time range - success", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{}, TraceRequestApiVersionV2, "abc123", 0, 0)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, "abc123", 0, 0)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
-		assert.Equal(t, "/api/v2/traces/abc123", req.URL.String())
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123", req.URL.String())
 	})
 
 	t.Run("createRequest v2 with time range - success", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{}, TraceRequestApiVersionV2, "abc123", 1, 2)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, "abc123", 1, 2)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
-		assert.Equal(t, "/api/v2/traces/abc123?start=1&end=2", req.URL.String())
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123?end=2&start=1", req.URL.String())
+	})
+
+	t.Run("createRequest v1 with trailing slash URL - no double slash", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/"}, TraceRequestApiVersionV1, "abc123", 0, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/api/traces/abc123", req.URL.String())
+	})
+
+	t.Run("createRequest v2 with trailing slash URL - no double slash", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/"}, TraceRequestApiVersionV2, "abc123", 1, 2)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123?end=2&start=1", req.URL.String())
+	})
+
+	t.Run("createRequest v2 without trailing slash URL - success", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, "abc123", 0, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123", req.URL.String())
+	})
+
+	t.Run("createRequest preserves existing query params in the configured URL", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/routing?my_arg=1"}, TraceRequestApiVersionV2, "abc123", 1, 2)
+		require.NoError(t, err)
+		// The custom my_arg must survive and start/end are appended, not concatenated with a second "?".
+		assert.Equal(t, "http://tempo/routing/api/v2/traces/abc123?end=2&my_arg=1&start=1", req.URL.String())
+	})
+
+	t.Run("createRequest preserves existing query params without a time range", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/routing?my_arg=1"}, TraceRequestApiVersionV2, "abc123", 0, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/routing/api/v2/traces/abc123?my_arg=1", req.URL.String())
 	})
 
 	t.Run("getTrace v1 empty ResourceSpans returns downstream error", func(t *testing.T) {
@@ -65,7 +102,12 @@ func TestTempo(t *testing.T) {
 		pluginCtx := backend.PluginContext{
 			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{URL: server.URL},
 		}
-		query := backend.DataQuery{JSON: []byte(`{"query": "abc123"}`)}
+		from := time.Unix(1000, 0).UTC()
+		to := time.Unix(2000, 0).UTC()
+		query := backend.DataQuery{
+			JSON:      []byte(`{"query": "abc123"}`),
+			TimeRange: backend.TimeRange{From: from, To: to},
+		}
 
 		res, err := service.getTrace(context.Background(), pluginCtx, query)
 
@@ -73,6 +115,49 @@ func TestTempo(t *testing.T) {
 		assert.Nil(t, res)
 		require.Error(t, err)
 		assert.True(t, backend.IsDownstreamError(err))
+		// When no trace is found the error should mention the searched time range
+		// and hint that the trace may exist outside of it (issue #176).
+		assert.Contains(t, err.Error(), "abc123")
+		assert.Contains(t, err.Error(), from.Format(time.RFC3339))
+		assert.Contains(t, err.Error(), to.Format(time.RFC3339))
+		assert.Contains(t, err.Error(), "outside")
+	})
+
+	t.Run("getTrace with zero time range omits the range from the not-found error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/api/v2/traces/") {
+				w.WriteHeader(http.StatusNotFound) // trigger v1 fallback
+			} else if strings.Contains(r.URL.Path, "/api/traces/") {
+				w.WriteHeader(http.StatusOK) // empty body → empty ResourceSpans → nil frame
+			}
+		}))
+		defer server.Close()
+
+		service := &DataSource{
+			info:   &DatasourceInfo{URL: server.URL, HTTPClient: server.Client()},
+			logger: backend.NewLoggerWith("logger", "tempo-test"),
+		}
+
+		pluginCtx := backend.PluginContext{
+			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{URL: server.URL},
+		}
+		// Zero range: with time shift off (the default) the frontend zeroes the
+		// range, so no range is actually applied and Tempo searches all time.
+		query := backend.DataQuery{
+			JSON:      []byte(`{"query": "abc123"}`),
+			TimeRange: backend.TimeRange{From: time.Unix(0, 0).UTC(), To: time.Unix(0, 0).UTC()},
+		}
+
+		res, err := service.getTrace(context.Background(), pluginCtx, query)
+
+		assert.Nil(t, res)
+		require.Error(t, err)
+		assert.True(t, backend.IsDownstreamError(err))
+		assert.Contains(t, err.Error(), "abc123")
+		// No range was applied, so the misleading [1970-.. to 1970-..] window and
+		// the "outside" hint must not appear.
+		assert.NotContains(t, err.Error(), "1970")
+		assert.NotContains(t, err.Error(), "outside")
 	})
 
 	t.Run("getTrace non-200 HTML response returns friendly error without raw HTML", func(t *testing.T) {

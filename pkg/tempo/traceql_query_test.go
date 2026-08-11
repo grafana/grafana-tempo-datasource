@@ -55,6 +55,45 @@ func TestCreateMetricsQuery_OnlyQuery(t *testing.T) {
 	assert.Equal(t, "application/json", req.Header.Get("Accept"))
 }
 
+func TestCreateMetricsQuery_TrailingSlashURL(t *testing.T) {
+	logger := backend.NewLoggerWith("logger", "tsdb.tempo.test")
+	service := &DataSource{
+		logger: logger,
+	}
+	dsInfo := &DatasourceInfo{
+		URL: "http://tempo:3100/",
+	}
+	queryVal := "{attribute=\"value\"}"
+	query := &dataquery.TempoQuery{
+		Query: &queryVal,
+	}
+
+	req, err := service.createMetricsQuery(context.Background(), dsInfo, query, 0, 0)
+	assert.NoError(t, err)
+	assert.NotNil(t, req)
+	assert.Equal(t, "http://tempo:3100/api/metrics/query_range?q=%7Battribute%3D%22value%22%7D", req.URL.String())
+}
+
+func TestCreateMetricsQuery_PreservesExistingQueryParams(t *testing.T) {
+	logger := backend.NewLoggerWith("logger", "tsdb.tempo.test")
+	service := &DataSource{
+		logger: logger,
+	}
+	dsInfo := &DatasourceInfo{
+		URL: "http://tempo:3100/routing?my_arg=1",
+	}
+	queryVal := "{attribute=\"value\"}"
+	query := &dataquery.TempoQuery{
+		Query: &queryVal,
+	}
+
+	req, err := service.createMetricsQuery(context.Background(), dsInfo, query, 1, 2)
+	assert.NoError(t, err)
+	assert.NotNil(t, req)
+	// The custom my_arg must survive and start/end are appended, not concatenated with a second "?".
+	assert.Equal(t, "http://tempo:3100/routing/api/metrics/query_range?end=2&my_arg=1&q=%7Battribute%3D%22value%22%7D&start=1", req.URL.String())
+}
+
 func TestCreateMetricsQuery_URLParseError(t *testing.T) {
 	logger := backend.NewLoggerWith("logger", "tsdb.tempo.test")
 	service := &DataSource{

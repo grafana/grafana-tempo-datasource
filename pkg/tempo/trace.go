@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -108,8 +111,7 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 		}
 
 		if frame == nil {
-			result.Status = http.StatusNotFound
-			err := fmt.Errorf("failed to get trace with id: %s Status: %s", *model.Query, result.Status)
+			err := traceNotFoundError(*model.Query, query.TimeRange)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return nil, backend.DownstreamError(err)
@@ -134,8 +136,7 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 		}
 
 		if frame == nil {
-			result.Status = http.StatusNotFound
-			err := fmt.Errorf("failed to get trace with id: %s Status: %s", *model.Query, result.Status)
+			err := traceNotFoundError(*model.Query, query.TimeRange)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			return nil, backend.DownstreamError(err)
@@ -152,6 +153,27 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 	result.Frames = frames
 	ctxLogger.Debug("Successfully got trace", "function", logEntrypoint())
 	return result, nil
+}
+
+// traceNotFoundError builds the error returned when Tempo responds successfully
+// but the trace has no spans. When a real time range is set it is included, with
+// a note that the trace may exist outside of it, which is helpful when a time
+// shift is applied to the trace-by-id request (issue #176).
+//
+// A zero bound means no range was applied: createRequest omits start/end when
+// either is zero (the frontend zeroes the range when time shift is off, which is
+// the default), so Tempo searches all time. Reporting a [1970-.. to 1970-..]
+// range in that case is misleading, so fall back to a plain message.
+func traceNotFoundError(traceID string, timeRange backend.TimeRange) error {
+	if timeRange.From.Unix() == 0 || timeRange.To.Unix() == 0 {
+		return fmt.Errorf("trace with id %s not found", traceID)
+	}
+	return fmt.Errorf(
+		"trace with id %s not found in the selected time range [%s to %s]; it may exist outside this range",
+		traceID,
+		timeRange.From.Format(time.RFC3339),
+		timeRange.To.Format(time.RFC3339),
+	)
 }
 
 // isHTMLResponse reports whether a response body is an HTML document rather than
@@ -223,26 +245,35 @@ const (
 
 func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo, apiVersion TraceRequestApiVersion, traceID string, start int64, end int64) (*http.Request, error) {
 	ctxLogger := ds.logger.FromContext(ctx)
-	var baseUrl string
-	var tempoQuery string
 
 	if !traceIDPattern.MatchString(traceID) {
 		return nil, backend.DownstreamErrorf("invalid trace id")
 	}
 
+	baseUrl, err := url.Parse(dsInfo.URL)
+	if err != nil {
+		ctxLogger.Error("Failed to parse trace URL", "url", dsInfo.URL, "error", err, "function", logEntrypoint())
+		return nil, fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	var traceUrl *url.URL
 	if apiVersion == TraceRequestApiVersionV1 {
-		baseUrl = fmt.Sprintf("%s/api/traces/%s", dsInfo.URL, traceID)
+		traceUrl = baseUrl.JoinPath("api", "traces", traceID)
 	} else {
-		baseUrl = fmt.Sprintf("%s/api/v2/traces/%s", dsInfo.URL, traceID)
+		traceUrl = baseUrl.JoinPath("api", "v2", "traces", traceID)
 	}
 
-	if start == 0 || end == 0 {
-		tempoQuery = baseUrl
-	} else {
-		tempoQuery = fmt.Sprintf("%s?start=%d&end=%d", baseUrl, start, end)
+	// Only add the time range when both bounds are set. Using url.Values keeps any
+	// query parameters already present in the configured data source URL instead of
+	// clobbering them with a second "?".
+	if start != 0 && end != 0 {
+		q := traceUrl.Query()
+		q.Set("start", strconv.FormatInt(start, 10))
+		q.Set("end", strconv.FormatInt(end, 10))
+		traceUrl.RawQuery = q.Encode()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", tempoQuery, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", traceUrl.String(), nil)
 	if err != nil {
 		ctxLogger.Error("Failed to create request", "error", err, "function", logEntrypoint())
 		return nil, err
