@@ -195,6 +195,46 @@ describe('transformFromOTLP()', () => {
     });
   });
 
+  test('keeps a single-trace file in one frame', () => {
+    const res = transformFromOTLP(
+      otlpResponse.batches as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
+      false
+    );
+    expect(res.data).toHaveLength(1);
+  });
+
+  test('groups spans by trace ID into one frame per trace', () => {
+    // Core reads dataFrames[0].get(0).traceID and applies it to the whole frame,
+    // so spans from different traces must land in separate frames.
+    const traceData = [
+      {
+        resource: { attributes: [{ key: 'service.name', value: { stringValue: 'svc' } }] },
+        instrumentationLibrarySpans: [
+          {
+            instrumentationLibrary: { name: 'lib' },
+            spans: [
+              { traceId: 'aaa', spanId: '1', name: 'A', startTimeUnixNano: 1, endTimeUnixNano: 2 },
+              { traceId: 'bbb', spanId: '2', name: 'B', startTimeUnixNano: 1, endTimeUnixNano: 2 },
+              { traceId: 'aaa', spanId: '3', name: 'A2', startTimeUnixNano: 1, endTimeUnixNano: 2 },
+            ],
+          },
+        ],
+      },
+    ] as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[];
+
+    const res = transformFromOTLP(traceData, false);
+    expect(res.data).toHaveLength(2); // one frame per distinct trace ID
+
+    const frameA = res.data[0] as MutableDataFrame;
+    const frameB = res.data[1] as MutableDataFrame;
+    expect(frameA.length).toBe(2);
+    expect(frameB.length).toBe(1);
+    // Every row in a frame shares one trace ID (what core reads from row 0).
+    expect(frameA.get(0).traceID).toBe('aaa');
+    expect(frameA.get(1).traceID).toBe('aaa');
+    expect(frameB.get(0).traceID).toBe('bbb');
+  });
+
   test('handles empty arrayValue attributes emitted by proto3 OTLP/JSON', () => {
     // Spec-compliant OTLP/JSON omits empty repeated fields, so an empty array
     // attribute arrives as {"arrayValue":{}} with no `values`. This must not

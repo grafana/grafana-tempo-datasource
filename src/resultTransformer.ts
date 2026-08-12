@@ -242,39 +242,21 @@ export function transformFromOTLP(
   traceData: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
   nodeGraph = false
 ): DataQueryResponse {
-  const frame = new MutableDataFrame({
-    fields: [
-      { name: 'traceID', type: FieldType.string, values: [] },
-      { name: 'spanID', type: FieldType.string, values: [] },
-      { name: 'parentSpanID', type: FieldType.string, values: [] },
-      { name: 'operationName', type: FieldType.string, values: [] },
-      { name: 'serviceName', type: FieldType.string, values: [] },
-      { name: 'serviceNamespace', type: FieldType.string, values: [] },
-      { name: 'kind', type: FieldType.string, values: [] },
-      { name: 'statusCode', type: FieldType.number, values: [] },
-      { name: 'statusMessage', type: FieldType.string, values: [] },
-      { name: 'instrumentationLibraryName', type: FieldType.string, values: [] },
-      { name: 'instrumentationLibraryVersion', type: FieldType.string, values: [] },
-      { name: 'traceState', type: FieldType.string, values: [] },
-      { name: 'serviceTags', type: FieldType.other, values: [] },
-      { name: 'startTime', type: FieldType.number, values: [] },
-      { name: 'duration', type: FieldType.number, values: [] },
-      { name: 'logs', type: FieldType.other, values: [] },
-      { name: 'references', type: FieldType.other, values: [] },
-      { name: 'tags', type: FieldType.other, values: [] },
-    ],
-    meta: {
-      preferredVisualisationType: 'trace',
-      custom: {
-        traceFormat: 'otlp',
-      },
-    },
-  });
+  // Grafana's TraceView renders dataFrames[0] and applies its first row's trace ID
+  // to every span in that frame, so each frame must hold a single trace. Group spans
+  // by trace ID and emit one frame per trace, otherwise a file with multiple traces
+  // is rendered as a single merged (and broken) trace.
+  const framesByTraceId = new Map<string, MutableDataFrame>();
   try {
     for (const data of traceData) {
       const { serviceName, serviceNamespace, serviceTags } = resourceToProcess(data.resource);
       for (const librarySpan of data.instrumentationLibrarySpans) {
         for (const span of librarySpan.spans) {
+          let frame = framesByTraceId.get(span.traceId);
+          if (!frame) {
+            frame = createTraceDataFrame();
+            framesByTraceId.set(span.traceId, frame);
+          }
           frame.add({
             traceID: span.traceId,
             spanID: span.spanId,
@@ -303,12 +285,48 @@ export function transformFromOTLP(
     return { error: { message: 'JSON is not valid OpenTelemetry format: ' + error }, data: [] };
   }
 
-  let data = [frame];
+  const frames = [...framesByTraceId.values()];
+  const data: MutableDataFrame[] = [...frames];
   if (nodeGraph) {
-    data.push(...(createNodeGraphFrames(frame) as MutableDataFrame[]));
+    for (const frame of frames) {
+      data.push(...(createNodeGraphFrames(frame) as MutableDataFrame[]));
+    }
   }
 
   return { data };
+}
+
+// createTraceDataFrame builds an empty single-trace dataframe with the fields the
+// Grafana trace view expects.
+function createTraceDataFrame(): MutableDataFrame {
+  return new MutableDataFrame({
+    fields: [
+      { name: 'traceID', type: FieldType.string, values: [] },
+      { name: 'spanID', type: FieldType.string, values: [] },
+      { name: 'parentSpanID', type: FieldType.string, values: [] },
+      { name: 'operationName', type: FieldType.string, values: [] },
+      { name: 'serviceName', type: FieldType.string, values: [] },
+      { name: 'serviceNamespace', type: FieldType.string, values: [] },
+      { name: 'kind', type: FieldType.string, values: [] },
+      { name: 'statusCode', type: FieldType.number, values: [] },
+      { name: 'statusMessage', type: FieldType.string, values: [] },
+      { name: 'instrumentationLibraryName', type: FieldType.string, values: [] },
+      { name: 'instrumentationLibraryVersion', type: FieldType.string, values: [] },
+      { name: 'traceState', type: FieldType.string, values: [] },
+      { name: 'serviceTags', type: FieldType.other, values: [] },
+      { name: 'startTime', type: FieldType.number, values: [] },
+      { name: 'duration', type: FieldType.number, values: [] },
+      { name: 'logs', type: FieldType.other, values: [] },
+      { name: 'references', type: FieldType.other, values: [] },
+      { name: 'tags', type: FieldType.other, values: [] },
+    ],
+    meta: {
+      preferredVisualisationType: 'trace',
+      custom: {
+        traceFormat: 'otlp',
+      },
+    },
+  });
 }
 
 /**
