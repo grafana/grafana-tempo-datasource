@@ -3,8 +3,8 @@ import * as React from 'react';
 import { useToggle } from 'react-use';
 
 import { CoreApp, type GrafanaTheme2 } from '@grafana/data';
-import { EditorField, EditorRow } from '@grafana/plugin-ui';
-import { AutoSizeInput, RadioButtonGroup, TextLink, useStyles2 } from '@grafana/ui';
+import { EditorField } from '@grafana/plugin-ui';
+import { AutoSizeInput, Box, RadioButtonGroup, TextLink, useStyles2 } from '@grafana/ui';
 
 import { QueryOptionGroup } from '../_importedDependencies/datasources/prometheus/QueryOptionGroup';
 import { SearchTableType, MetricsQueryType } from '../dataquery';
@@ -94,7 +94,7 @@ export const TempoQueryBuilderOptions = React.memo<Props>(
     ];
 
     return (
-      <EditorRow>
+      <Box backgroundColor="secondary" borderRadius="default">
         <div className={styles.options}>
           {!isAlerting && (
             <QueryOptionGroup
@@ -192,7 +192,7 @@ export const TempoQueryBuilderOptions = React.memo<Props>(
             {/*</EditorField>*/}
           </QueryOptionGroup>
         </div>
-      </EditorRow>
+      </Box>
     );
   }
 );
