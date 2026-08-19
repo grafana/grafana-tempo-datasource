@@ -10,6 +10,7 @@ import { type TempoDatasource } from '../datasource';
 import { defaultQuery, type MyDataSourceOptions, type TempoQuery } from '../types';
 
 import { TempoQueryBuilderOptions } from './TempoQueryBuilderOptions';
+import { TraceIdQueryOptions } from './TraceIdQueryOptions';
 import { TraceQLEditor } from './TraceQLEditor';
 
 type EditorProps = {
@@ -93,6 +94,7 @@ export function QueryEditor(props: Props) {
           metricsStreaming={props.datasource.isStreamingMetricsEnabled() ?? false}
           app={props.app}
         />
+        <TraceIdQueryOptions query={query} onChange={props.onChange} />
       </div>
     </>
   );

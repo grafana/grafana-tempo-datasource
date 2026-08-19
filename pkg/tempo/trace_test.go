@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
+	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,7 +17,7 @@ import (
 func TestTempo(t *testing.T) {
 	t.Run("createRequest v1 without time range - success", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV1, "abc123", 0, 0)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV1, &dataquery.TempoQuery{}, "abc123", 0, 0)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
 		assert.Equal(t, "http://tempo/api/traces/abc123", req.URL.String())
@@ -24,7 +25,7 @@ func TestTempo(t *testing.T) {
 
 	t.Run("createRequest v1 with time range - success", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV1, "abc123", 1, 2)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV1, &dataquery.TempoQuery{}, "abc123", 1, 2)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
 		assert.Equal(t, "http://tempo/api/traces/abc123?end=2&start=1", req.URL.String())
@@ -32,54 +33,180 @@ func TestTempo(t *testing.T) {
 
 	t.Run("createRequest v2 without time range - success", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, "abc123", 0, 0)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, &dataquery.TempoQuery{}, "abc123", 0, 0)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
-		assert.Equal(t, "http://tempo/api/v2/traces/abc123", req.URL.String())
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123?span_pruning=true", req.URL.String())
 	})
 
 	t.Run("createRequest v2 with time range - success", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, "abc123", 1, 2)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, &dataquery.TempoQuery{}, "abc123", 1, 2)
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(req.Header))
-		assert.Equal(t, "http://tempo/api/v2/traces/abc123?end=2&start=1", req.URL.String())
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123?end=2&span_pruning=true&start=1", req.URL.String())
 	})
 
 	t.Run("createRequest v1 with trailing slash URL - no double slash", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/"}, TraceRequestApiVersionV1, "abc123", 0, 0)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/"}, TraceRequestApiVersionV1, &dataquery.TempoQuery{}, "abc123", 0, 0)
 		require.NoError(t, err)
 		assert.Equal(t, "http://tempo/api/traces/abc123", req.URL.String())
 	})
 
 	t.Run("createRequest v2 with trailing slash URL - no double slash", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/"}, TraceRequestApiVersionV2, "abc123", 1, 2)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/"}, TraceRequestApiVersionV2, &dataquery.TempoQuery{}, "abc123", 1, 2)
 		require.NoError(t, err)
-		assert.Equal(t, "http://tempo/api/v2/traces/abc123?end=2&start=1", req.URL.String())
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123?end=2&span_pruning=true&start=1", req.URL.String())
 	})
 
 	t.Run("createRequest v2 without trailing slash URL - success", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, "abc123", 0, 0)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, &dataquery.TempoQuery{}, "abc123", 0, 0)
 		require.NoError(t, err)
-		assert.Equal(t, "http://tempo/api/v2/traces/abc123", req.URL.String())
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123?span_pruning=true", req.URL.String())
 	})
 
 	t.Run("createRequest preserves existing query params in the configured URL", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/routing?my_arg=1"}, TraceRequestApiVersionV2, "abc123", 1, 2)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/routing?my_arg=1"}, TraceRequestApiVersionV2, &dataquery.TempoQuery{}, "abc123", 1, 2)
 		require.NoError(t, err)
 		// The custom my_arg must survive and start/end are appended, not concatenated with a second "?".
-		assert.Equal(t, "http://tempo/routing/api/v2/traces/abc123?end=2&my_arg=1&start=1", req.URL.String())
+		assert.Equal(t, "http://tempo/routing/api/v2/traces/abc123?end=2&my_arg=1&span_pruning=true&start=1", req.URL.String())
 	})
 
 	t.Run("createRequest preserves existing query params without a time range", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
-		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/routing?my_arg=1"}, TraceRequestApiVersionV2, "abc123", 0, 0)
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/routing?my_arg=1"}, TraceRequestApiVersionV2, &dataquery.TempoQuery{}, "abc123", 0, 0)
 		require.NoError(t, err)
-		assert.Equal(t, "http://tempo/routing/api/v2/traces/abc123?my_arg=1", req.URL.String())
+		assert.Equal(t, "http://tempo/routing/api/v2/traces/abc123?my_arg=1&span_pruning=true", req.URL.String())
+	})
+
+	t.Run("createRequest v2 sends all pruning params when set", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		pruning := true
+		groupBy := "db.*,http.method"
+		minSpans := int64(10)
+		maxParentDepth := int64(-1)
+		model := &dataquery.TempoQuery{
+			SpanPruning:               &pruning,
+			SpanPruningGroupBy:        &groupBy,
+			SpanPruningMinSpans:       &minSpans,
+			SpanPruningMaxParentDepth: &maxParentDepth,
+		}
+
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, model, "abc123", 1, 2)
+		require.NoError(t, err)
+
+		q := req.URL.Query()
+		assert.Equal(t, "true", q.Get("span_pruning"))
+		assert.Equal(t, "db.*,http.method", q.Get("span_pruning_group_by"))
+		assert.Equal(t, "10", q.Get("span_pruning_min_spans"))
+		assert.Equal(t, "-1", q.Get("span_pruning_max_parent_depth"))
+		assert.Equal(t, "1", q.Get("start"))
+		assert.Equal(t, "2", q.Get("end"))
+		assert.Equal(t, 1, strings.Count(req.URL.String(), "?"), "params must be encoded once, not concatenated with a second \"?\"")
+	})
+
+	t.Run("createRequest v1 omits pruning params", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		pruning := true
+		groupBy := "db.*,http.method"
+		minSpans := int64(10)
+		maxParentDepth := int64(-1)
+		model := &dataquery.TempoQuery{
+			SpanPruning:               &pruning,
+			SpanPruningGroupBy:        &groupBy,
+			SpanPruningMinSpans:       &minSpans,
+			SpanPruningMaxParentDepth: &maxParentDepth,
+		}
+
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV1, model, "abc123", 1, 2)
+		require.NoError(t, err)
+
+		// The v1 endpoint rejects unknown params and getTrace falls back to it on a 404.
+		assert.Equal(t, "http://tempo/api/traces/abc123?end=2&start=1", req.URL.String())
+		assert.NotContains(t, req.URL.String(), "span_pruning")
+	})
+
+	t.Run("createRequest v2 sends pruning params with a zero time range", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		pruning := true
+		groupBy := "db.*,http.method"
+		minSpans := int64(10)
+		maxParentDepth := int64(-1)
+		model := &dataquery.TempoQuery{
+			SpanPruning:               &pruning,
+			SpanPruningGroupBy:        &groupBy,
+			SpanPruningMinSpans:       &minSpans,
+			SpanPruningMaxParentDepth: &maxParentDepth,
+		}
+
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, model, "abc123", 0, 0)
+		require.NoError(t, err)
+
+		// Guards against regressing the url.Values hoist in createRequest: if the read
+		// and write-back move back inside the "start != 0 && end != 0" guard, pruning
+		// params silently vanish. The frontend zeroes the range by default, so this is
+		// the common case, not an edge case.
+		q := req.URL.Query()
+		assert.Equal(t, "true", q.Get("span_pruning"))
+		assert.Equal(t, "db.*,http.method", q.Get("span_pruning_group_by"))
+		assert.Equal(t, "10", q.Get("span_pruning_min_spans"))
+		assert.Equal(t, "-1", q.Get("span_pruning_max_parent_depth"))
+		assert.Empty(t, q.Get("start"))
+		assert.Empty(t, q.Get("end"))
+	})
+
+	t.Run("createRequest v2 sends span_pruning=false when explicitly disabled", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		pruning := false
+		groupBy := "db.*,http.method"
+		minSpans := int64(10)
+		maxParentDepth := int64(-1)
+		model := &dataquery.TempoQuery{
+			SpanPruning:               &pruning,
+			SpanPruningGroupBy:        &groupBy,
+			SpanPruningMinSpans:       &minSpans,
+			SpanPruningMaxParentDepth: &maxParentDepth,
+		}
+
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, model, "abc123", 1, 2)
+		require.NoError(t, err)
+
+		// span_pruning=false must be sent explicitly so the request does not depend on
+		// the cluster or tenant default; Tempo ignores the sub-params when it is off.
+		q := req.URL.Query()
+		assert.Equal(t, "false", q.Get("span_pruning"))
+		assert.Empty(t, q.Get("span_pruning_group_by"))
+		assert.Empty(t, q.Get("span_pruning_min_spans"))
+		assert.Empty(t, q.Get("span_pruning_max_parent_depth"))
+	})
+
+	t.Run("createRequest v2 omits sub-params when nil", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, &dataquery.TempoQuery{}, "abc123", 1, 2)
+		require.NoError(t, err)
+
+		q := req.URL.Query()
+		assert.Equal(t, "true", q.Get("span_pruning"))
+		assert.Empty(t, q.Get("span_pruning_group_by"))
+		assert.Empty(t, q.Get("span_pruning_min_spans"))
+		assert.Empty(t, q.Get("span_pruning_max_parent_depth"))
+	})
+
+	t.Run("createRequest v2 transmits a max parent depth of 0", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		maxParentDepth := int64(0)
+		model := &dataquery.TempoQuery{SpanPruningMaxParentDepth: &maxParentDepth}
+
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, model, "abc123", 1, 2)
+		require.NoError(t, err)
+
+		// 0 means "aggregate leaves only" — a truthiness guard would wrongly drop it.
+		assert.Equal(t, "0", req.URL.Query().Get("span_pruning_max_parent_depth"))
 	})
 
 	t.Run("getTrace v1 empty ResourceSpans returns downstream error", func(t *testing.T) {

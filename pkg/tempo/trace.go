@@ -200,7 +200,7 @@ func describeErrorBody(resp *http.Response, body []byte) string {
 
 func (ds *DataSource) performTraceRequest(ctx context.Context, dsInfo *DatasourceInfo, apiVersion TraceRequestApiVersion, model *dataquery.TempoQuery, query backend.DataQuery, span trace.Span) (*http.Response, []byte, error) {
 	ctxLogger := ds.logger.FromContext(ctx)
-	request, err := ds.createRequest(ctx, dsInfo, apiVersion, *model.Query, query.TimeRange.From.Unix(), query.TimeRange.To.Unix())
+	request, err := ds.createRequest(ctx, dsInfo, apiVersion, model, *model.Query, query.TimeRange.From.Unix(), query.TimeRange.To.Unix())
 
 	if err != nil {
 		ctxLogger.Error("Failed to create request", "error", err, "function", logEntrypoint())
@@ -243,7 +243,7 @@ const (
 	TraceRequestApiVersionV2
 )
 
-func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo, apiVersion TraceRequestApiVersion, traceID string, start int64, end int64) (*http.Request, error) {
+func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo, apiVersion TraceRequestApiVersion, model *dataquery.TempoQuery, traceID string, start int64, end int64) (*http.Request, error) {
 	ctxLogger := ds.logger.FromContext(ctx)
 
 	if !traceIDPattern.MatchString(traceID) {
@@ -263,15 +263,22 @@ func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo,
 		traceUrl = baseUrl.JoinPath("api", "v2", "traces", traceID)
 	}
 
-	// Only add the time range when both bounds are set. Using url.Values keeps any
-	// query parameters already present in the configured data source URL instead of
-	// clobbering them with a second "?".
+	// Using url.Values keeps any query parameters already present in the configured
+	// data source URL instead of clobbering them with a second "?". The read and the
+	// write-back stay outside the time range guard: the frontend zeroes the range
+	// when time shift is off (the default), so params other than start/end would
+	// otherwise never be encoded in the common case.
+	q := traceUrl.Query()
 	if start != 0 && end != 0 {
-		q := traceUrl.Query()
 		q.Set("start", strconv.FormatInt(start, 10))
 		q.Set("end", strconv.FormatInt(end, 10))
-		traceUrl.RawQuery = q.Encode()
 	}
+	// The v1 endpoint does not support span pruning params, and getTrace falls back
+	// to v1 on a 404.
+	if apiVersion == TraceRequestApiVersionV2 {
+		appendSpanPruningParams(q, model)
+	}
+	traceUrl.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", traceUrl.String(), nil)
 	if err != nil {
@@ -281,4 +288,35 @@ func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo,
 
 	req.Header.Set("Accept", "application/protobuf")
 	return req, nil
+}
+
+// appendSpanPruningParams adds the span pruning query params for the v2
+// trace-by-id endpoint. span_pruning is always sent so the request does not
+// depend on the cluster or tenant default.
+//
+// The true default here must stay paired with `query.spanPruning ?? true` in
+// src/traceql/TraceIdQueryOptions.tsx; there is no shared source of truth across
+// the TS/Go boundary.
+func appendSpanPruningParams(q url.Values, model *dataquery.TempoQuery) {
+	pruning := true
+	if model.SpanPruning != nil {
+		pruning = *model.SpanPruning
+	}
+	q.Set("span_pruning", strconv.FormatBool(pruning))
+	if !pruning {
+		// Tempo only reads the sub-params when pruning is enabled.
+		return
+	}
+
+	if model.SpanPruningGroupBy != nil && *model.SpanPruningGroupBy != "" {
+		q.Set("span_pruning_group_by", *model.SpanPruningGroupBy)
+	}
+	if model.SpanPruningMinSpans != nil {
+		q.Set("span_pruning_min_spans", strconv.FormatInt(*model.SpanPruningMinSpans, 10))
+	}
+	// No positivity guard: 0 (aggregate leaves only) and -1 (unlimited) are both
+	// meaningful values.
+	if model.SpanPruningMaxParentDepth != nil {
+		q.Set("span_pruning_max_parent_depth", strconv.FormatInt(*model.SpanPruningMaxParentDepth, 10))
+	}
 }
