@@ -6,7 +6,6 @@
 //
 // Run 'make gen-cue' from repository root to regenerate.
 
-
 package dataquery
 
 import (
@@ -62,6 +61,18 @@ type TempoQuery struct {
 	Datasource any `json:"datasource,omitempty"`
 	// For metric queries, whether to run instant or range queries
 	MetricsQueryType *MetricsQueryType `json:"metricsQueryType,omitempty"`
+	// For trace ID queries, whether Tempo collapses similar spans into a summary span. Maps to the span_pruning query param.
+	// Defaults to enabled when unset; an explicit value always overrides Tempo's cluster or tenant default.
+	SpanPruning *bool `json:"spanPruning,omitempty"`
+	// For trace ID queries, comma-separated glob patterns of attributes to group spans by when pruning, for example: db.*,http.method
+	// Maps to the span_pruning_group_by query param, omitted when unset, in which case spans are grouped by name only.
+	SpanPruningGroupBy *string `json:"spanPruningGroupBy,omitempty"`
+	// For trace ID queries, the minimum number of similar spans required in a group before they are collapsed. Maps to the span_pruning_min_spans query param.
+	// Omitted when unset, Tempo defaults to 5 and requires at least 2.
+	SpanPruningMinSpans *int64 `json:"spanPruningMinSpans,omitempty"`
+	// For trace ID queries, how many ancestor levels above the aggregated leaf spans can also be aggregated, where 0 aggregates leaves only and -1 means unlimited depth.
+	// Maps to the span_pruning_max_parent_depth query param, omitted when unset so Tempo defaults to 1.
+	SpanPruningMaxParentDepth *int64 `json:"spanPruningMaxParentDepth,omitempty"`
 }
 
 // NewTempoQuery creates a new TempoQuery object.

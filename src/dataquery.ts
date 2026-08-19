@@ -55,6 +55,22 @@ export interface TempoQuery extends common.DataQuery {
    */
   spanName?: string;
   /**
+   * Defines whether Tempo collapses similar spans when returning a trace by ID, sent as the span_pruning query param. Defaults to enabled, and an explicit value always takes precedence over Tempo's cluster or tenant default.
+   */
+  spanPruning?: boolean;
+  /**
+   * Defines the comma-separated attribute glob patterns used to decide which leaf spans belong in the same group, for example: db.*,http.method. Sent as the span_pruning_group_by query param, omitted when unset, in which case spans are grouped by name only.
+   */
+  spanPruningGroupBy?: string;
+  /**
+   * Defines how many ancestor levels above the aggregated leaf spans can also be aggregated, sent as the span_pruning_max_parent_depth query param. 0 aggregates leaves only and -1 means unlimited depth. Omitted when unset, in which case Tempo defaults to 1.
+   */
+  spanPruningMaxParentDepth?: number;
+  /**
+   * Defines the minimum number of similar spans required in a group before they are collapsed, sent as the span_pruning_min_spans query param. Omitted when unset, in which case Tempo defaults to 5 and requires at least 2.
+   */
+  spanPruningMinSpans?: number;
+  /**
    * Defines the maximum number of spans per spanset that are returned from Tempo
    */
   spss?: number;
