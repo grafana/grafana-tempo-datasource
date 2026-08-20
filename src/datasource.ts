@@ -17,6 +17,7 @@ import {
   dateTime,
   FieldType,
   LoadingState,
+  MetricFindValue,
   NodeGraphDataFrameFieldNames,
   rangeUtil,
   type ScopedVars,
@@ -233,12 +234,12 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
   }
 
   // Allows to retrieve the list of tag values for ad-hoc filters
-  getTagValues(options: DataSourceGetTagValuesOptions<TempoQuery>): Promise<Array<{ text: string }>> {
+  getTagValues(options: DataSourceGetTagValuesOptions<TempoQuery>): Promise<MetricFindValue[]> {
     const query = this.languageProvider.generateQueryFromFilters({ adhocFilters: options.filters });
     return this.tagValuesQuery(options.key, query, options?.timeRange ?? undefined);
   }
 
-  async tagValuesQuery(tag: string, query: string, range?: TimeRange): Promise<Array<{ text: string }>> {
+  async tagValuesQuery(tag: string, query: string, range?: TimeRange): Promise<MetricFindValue[]> {
     // For V2, we need to send scope and tag name, e.g. `span.http.status_code`,
     // unless the tag has intrinsic scope
     const options = await this.languageProvider.getOptionsV2({
@@ -249,7 +250,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     });
 
     return options.flatMap((option: SelectableValue<string>) =>
-      option.value !== undefined ? [{ text: option.value }] : []
+      option.value !== undefined ? [{ text: option.value, ...this.getTagValueProperties(option) }] : []
     );
   }
 
@@ -881,6 +882,14 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
 
     const appliedQuery = this.applyVariables(query, {});
     return this.languageProvider.generateQueryFromFilters({ traceqlFilters: appliedQuery.filters });
+  }
+
+  private getTagValueProperties(option: SelectableValue<string>) {
+    if (!option.type) {
+      return {};
+    }
+
+    return { properties: { valueType: option.type } };
   }
 }
 

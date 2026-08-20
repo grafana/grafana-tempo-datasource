@@ -1183,6 +1183,31 @@ describe('should provide functionality for ad-hoc filters', () => {
       },
     };
     const response = await datasource.getTagValues(options);
+    expect(response).toEqual([
+      { text: 'value1', properties: { valueType: 'string' } },
+      { text: 'value2', properties: { valueType: 'string' } },
+    ]);
+  });
+
+  it('for getTagValues with missing type', async () => {
+    jest.spyOn(datasource.languageProvider, 'getOptionsV2').mockResolvedValue([
+      { value: 'value1', label: 'value1' },
+      { value: 'value2', label: 'value2' },
+    ]);
+    const now = dateTime('2021-04-20T15:55:00Z');
+    const options = {
+      key: 'span.label1',
+      filters: [],
+      timeRange: {
+        from: now,
+        to: now,
+        raw: {
+          from: 'now-15m',
+          to: 'now',
+        },
+      },
+    };
+    const response = await datasource.getTagValues(options);
     expect(response).toEqual([{ text: 'value1' }, { text: 'value2' }]);
   });
 });
