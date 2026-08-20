@@ -57,6 +57,7 @@ import {
 import TempoLanguageProvider from './language_provider';
 import {
   enhanceTraceQlMetricsResponse,
+  parseUploadedTraceData,
   transformFromOTLP as transformFromOTEL,
   transformTrace,
 } from './resultTransformer';
@@ -473,17 +474,24 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
           grafana_version: config.buildInfo.version,
         });
 
-        const jsonData = JSON.parse(this.uploadedJson);
-        const isTraceData = jsonData.batches;
-        const isServiceGraphData =
-          Array.isArray(jsonData) && jsonData.some((df) => df?.meta?.preferredVisualisationType === 'nodeGraph');
-
-        if (isTraceData) {
-          subQueries.push(of(transformFromOTEL(jsonData.batches, this.nodeGraph?.enabled)));
-        } else if (isServiceGraphData) {
-          subQueries.push(of({ data: jsonData, state: LoadingState.Done }));
+        const traceData = parseUploadedTraceData(this.uploadedJson);
+        if (traceData) {
+          subQueries.push(of(transformFromOTEL(traceData, this.nodeGraph?.enabled)));
         } else {
-          subQueries.push(of({ error: { message: 'Unable to parse uploaded data.' }, data: [] }));
+          let jsonData = null;
+          try {
+            jsonData = JSON.parse(this.uploadedJson);
+          } catch {
+            jsonData = null;
+          }
+          const isServiceGraphData =
+            Array.isArray(jsonData) && jsonData.some((df) => df?.meta?.preferredVisualisationType === 'nodeGraph');
+
+          if (isServiceGraphData) {
+            subQueries.push(of({ data: jsonData, state: LoadingState.Done }));
+          } else {
+            subQueries.push(of({ error: { message: 'Unable to parse uploaded data.' }, data: [] }));
+          }
         }
       } else {
         subQueries.push(of({ data: [], state: LoadingState.Done }));
