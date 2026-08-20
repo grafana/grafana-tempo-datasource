@@ -19,7 +19,7 @@ jest.mock('../SearchTraceQLEditor/TagsInput', () => ({
 }));
 
 describe('TraceQLSearchTags', () => {
-  it('does not mutate the existing filters array when adding a new filter', () => {
+  it('should not mutate the existing filters array when adding a new filter', () => {
     const existingFilter: TraceqlFilter = { id: 'service-name', tag: 'service.name', operator: '=' };
     const originalFilters = [existingFilter];
 
@@ -37,9 +37,7 @@ describe('TraceQLSearchTags', () => {
     const newFilter: TraceqlFilter = { id: 'span-name', tag: 'name', operator: '=' };
     capturedUpdateFilter?.(newFilter);
 
-    // The array TraceQLSearchTags was given as a prop must be left untouched:
-    // mutating props.options.jsonData.search.filters in place would silently
-    // corrupt the caller's own state (see grafana/grafana-tempo-datasource#181).
+    // The original filters array must stay untouched
     expect(originalFilters).toEqual([existingFilter]);
 
     expect(onOptionsChange).toHaveBeenCalledWith(
