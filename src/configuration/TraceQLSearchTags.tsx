@@ -40,7 +40,7 @@ export function TraceQLSearchTags({ options, onOptionsChange, datasource }: Prop
         // update in place if the filter already exists, for consistency and to avoid UI bugs
         copy = replaceAt(copy, indexOfFilter, s);
       } else {
-        copy.push(s);
+        copy = [...copy, s];
       }
       updateDatasourcePluginJsonDataOption({ onOptionsChange, options }, 'search', {
         ...options.jsonData.search,
