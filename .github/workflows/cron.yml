@@ -23,8 +23,8 @@ jobs:
       # Paths are relative to ci/repo/grafana/grafana-tempo-datasource/ —
       # get-vault-secrets prepends that prefix for `repo_secrets`.
       repo-secrets: |
-        DS_INSTANCE_NAME=tempo:name
-        DS_INSTANCE_URL=tempo:url
+        DS_INSTANCE_NAME=tempoEKS:name
+        DS_INSTANCE_URL=tempoEKS:url
 
   notify-slack:
     name: Notify Slack on failure

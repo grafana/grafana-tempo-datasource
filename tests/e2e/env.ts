@@ -48,7 +48,10 @@ export async function resolveDataSourceUid(page: Page): Promise<string> {
   const tempoDataSources: Array<{ name: string; uid: string }> = (await response.json()).filter(
     (dataSource: { type: string }) => dataSource.type === 'tempo'
   );
-  const exactMatch = tempoDataSources.find((dataSource) => dataSource.name === DS_NAME);
+  const managedDataSourceName = `[managed_data_source] - ${DS_NAME}`;
+  const exactMatch = tempoDataSources.find(
+    (dataSource) => dataSource.name === DS_NAME || dataSource.name === managedDataSourceName
+  );
   if (exactMatch) {
     return exactMatch.uid;
   }
