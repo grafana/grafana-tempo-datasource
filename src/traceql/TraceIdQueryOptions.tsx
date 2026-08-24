@@ -72,7 +72,7 @@ export const TraceIdQueryOptions = React.memo<Props>(({ onChange, query }) => {
         >
           <EditorField
             label="Span Pruning"
-            tooltip="Collapses groups of similar leaf spans into a single summary span when Tempo returns the trace. On by default, and an explicit choice here takes precedence over the cluster or tenant default."
+            tooltip="Collapses groups of similar leaf spans into a single summary span when Tempo returns the trace. On by default."
           >
             <RadioButtonGroup<boolean>
               options={[
