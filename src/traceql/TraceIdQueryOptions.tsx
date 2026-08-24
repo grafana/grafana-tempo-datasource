@@ -88,7 +88,7 @@ export const TraceIdQueryOptions = React.memo<Props>(({ onChange, query }) => {
             tooltip="Comma-separated attribute glob patterns deciding which leaf spans belong in the same group, for example db.*,http.method. Leave blank to group similar spans by name only."
           >
             <AutoSizeInput
-              className="width-16"
+              className="width-20"
               placeholder="db.*,http.method"
               type="string"
               disabled={!spanPruningEnabled}
@@ -101,7 +101,7 @@ export const TraceIdQueryOptions = React.memo<Props>(({ onChange, query }) => {
             tooltip="Minimum number of similar spans required in a group before they are collapsed. Must be at least 2. Leave blank to let Tempo apply its default of 5."
           >
             <AutoSizeInput
-              className="width-4"
+              className="width-8"
               placeholder="5"
               type="number"
               min={2}
@@ -115,7 +115,7 @@ export const TraceIdQueryOptions = React.memo<Props>(({ onChange, query }) => {
             tooltip="How many ancestor levels above the aggregated leaf spans can also be aggregated. 0 aggregates leaves only and -1 means unlimited depth. Leave blank to let Tempo apply its default of 1."
           >
             <AutoSizeInput
-              className="width-4"
+              className="width-14"
               placeholder="1"
               type="number"
               min={-1}
