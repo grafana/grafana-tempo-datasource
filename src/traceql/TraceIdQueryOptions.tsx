@@ -3,8 +3,8 @@ import * as React from 'react';
 import { useToggle } from 'react-use';
 
 import { type GrafanaTheme2 } from '@grafana/data';
-import { EditorField, EditorRow } from '@grafana/plugin-ui';
-import { AutoSizeInput, RadioButtonGroup, useStyles2 } from '@grafana/ui';
+import { EditorField } from '@grafana/plugin-ui';
+import { AutoSizeInput, Box, RadioButtonGroup, useStyles2 } from '@grafana/ui';
 
 import { QueryOptionGroup } from '../_importedDependencies/datasources/prometheus/QueryOptionGroup';
 import { type TempoQuery } from '../types';
@@ -62,7 +62,7 @@ export const TraceIdQueryOptions = React.memo<Props>(({ onChange, query }) => {
     : ['Span Pruning: Off'];
 
   return (
-    <EditorRow>
+    <Box backgroundColor="secondary" borderRadius="default">
       <div className={styles.options}>
         <QueryOptionGroup
           title="TraceID Query Options"
@@ -126,7 +126,7 @@ export const TraceIdQueryOptions = React.memo<Props>(({ onChange, query }) => {
           </EditorField>
         </QueryOptionGroup>
       </div>
-    </EditorRow>
+    </Box>
   );
 });
 
