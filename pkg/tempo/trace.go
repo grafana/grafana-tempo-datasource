@@ -16,9 +16,8 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/tracing"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/tempo/pkg/tempopb"
-
 	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
+	"github.com/grafana/tempo/pkg/tempopb"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -77,16 +76,10 @@ func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, 
 
 	if resp.StatusCode != http.StatusOK {
 		ctxLogger.Error("Failed to get trace", "error", err, "function", logEntrypoint())
-		err := fmt.Errorf("failed to get trace with id: %s Status: %s Body: %s", *model.Query, resp.Status, describeErrorBody(resp, traceBody))
-
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-
-		if backend.ErrorSourceFromHTTPStatus(resp.StatusCode) == backend.ErrorSourceDownstream {
-			return nil, backend.DownstreamError(err)
-		}
-
-		return nil, err
+		result = dataResponseFromHTTPError(resp, traceBody, fmt.Sprintf("failed to get trace with id: %s Status: %s", *model.Query, resp.Status))
+		span.RecordError(result.Error)
+		span.SetStatus(codes.Error, result.Error.Error())
+		return result, nil
 	}
 
 	var frame *data.Frame
