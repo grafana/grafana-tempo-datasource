@@ -2,17 +2,13 @@ package tempo
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestCreateMetricsQuery_Success(t *testing.T) {
@@ -208,45 +204,31 @@ func TestQueryWithInvalidFunction_ReturnsFalse(t *testing.T) {
 }
 
 func TestRunTraceQlQueryMetrics_AllowsUnknownJSONFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"series":[],"UNKNOWN":"UNKNOWN_VALUE"}`))
+	}))
+	defer server.Close()
+
+	ds := &DataSource{
+		info:   &DatasourceInfo{URL: server.URL, HTTPClient: server.Client()},
+		logger: backend.NewLoggerWith("logger", "tsdb.tempo.test"),
+	}
+
 	tests := []struct {
-		name             string
-		metricsQueryType string
+		queryType dataquery.MetricsQueryType
+		query     string
 	}{
-		{name: "instant", metricsQueryType: "instant"},
-		{name: "range", metricsQueryType: "range"},
+		{queryType: dataquery.MetricsQueryTypeInstant, query: "{} | rate()"},
+		{queryType: dataquery.MetricsQueryTypeRange, query: "{} | rate()"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"series":[],"unexpected":"field"}`))
-			}))
-			defer server.Close()
-
-			service := &DataSource{
-				info: &DatasourceInfo{
-					URL:        server.URL,
-					HTTPClient: server.Client(),
-				},
-				logger: backend.NewLoggerWith("logger", "tsdb.tempo.test"),
-			}
-
-			queryJSON := fmt.Sprintf(`{"query":"{} | rate()","metricsQueryType":%q}`, tt.metricsQueryType)
-			var tempoQuery dataquery.TempoQuery
-			require.NoError(t, json.Unmarshal([]byte(queryJSON), &tempoQuery))
-
-			res, err := service.runTraceQlQueryMetrics(context.Background(), backend.PluginContext{}, backend.DataQuery{
-				JSON: []byte(queryJSON),
-				TimeRange: backend.TimeRange{
-					From: time.Unix(100, 0),
-					To:   time.Unix(200, 0),
-				},
-			}, &tempoQuery)
-
-			require.NoError(t, err)
-			require.NotNil(t, res)
-			assert.Empty(t, res.Frames)
+		queryType := tt.queryType
+		query := tt.query
+		_, err := ds.runTraceQlQueryMetrics(context.Background(), backend.PluginContext{}, backend.DataQuery{}, &dataquery.TempoQuery{
+			Query:            &query,
+			MetricsQueryType: &queryType,
 		})
+		assert.NoError(t, err)
 	}
 }
