@@ -41,6 +41,47 @@ func TestTransformMetricsResponse_SingleSeriesSingleLabel(t *testing.T) {
 	assert.Equal(t, 1.23, frames[0].Fields[1].At(0))
 }
 
+func TestTransformMetricsResponse_SetsIntervalFromStep(t *testing.T) {
+	resp := tempopb.QueryRangeResponse{
+		Step: 15_000_000_000, // 15s
+		Series: []*tempopb.TimeSeries{
+			{
+				Labels: []v1.KeyValue{
+					{Key: "label1", Value: &v1.AnyValue{Value: &v1.AnyValue_StringValue{StringValue: "value1"}}},
+				},
+				Samples: []tempopb.Sample{
+					{TimestampMs: 1638316800000, Value: 1.23},
+				},
+			},
+		},
+	}
+	frames := TransformMetricsResponse("", resp)
+	assert.Len(t, frames, 1)
+	timeField := frames[0].Fields[0]
+	if assert.NotNil(t, timeField.Config) {
+		assert.Equal(t, float64(15_000), timeField.Config.Interval)
+	}
+}
+
+func TestTransformMetricsResponse_NoIntervalWhenStepMissing(t *testing.T) {
+	// step is missing, e.g. old Tempo version
+	resp := tempopb.QueryRangeResponse{
+		Series: []*tempopb.TimeSeries{
+			{
+				Labels: []v1.KeyValue{
+					{Key: "label1", Value: &v1.AnyValue{Value: &v1.AnyValue_StringValue{StringValue: "value1"}}},
+				},
+				Samples: []tempopb.Sample{
+					{TimestampMs: 1638316800000, Value: 1.23},
+				},
+			},
+		},
+	}
+	frames := TransformMetricsResponse("", resp)
+	assert.Len(t, frames, 1)
+	assert.Nil(t, frames[0].Fields[0].Config)
+}
+
 func TestTransformMetricsResponse_SingleSeriesMultipleLabels(t *testing.T) {
 	resp := tempopb.QueryRangeResponse{
 		Series: []*tempopb.TimeSeries{
