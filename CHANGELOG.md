@@ -1,5 +1,10 @@
 # Changelog
 
+## 13.2.1
+
+- Dependency updates ([#226](https://github.com/grafana/grafana-tempo-datasource/pull/226))
+- Fix TraceQL instant metrics queries failing when Tempo returns new fields ([#247](https://github.com/grafana/grafana-tempo-datasource/pull/227))
+
 ## 13.2.0
 
 - Bump go v1.26.7 and grafana-plugin-sdk-go v0.296.4 ([#229](https://github.com/grafana/grafana-tempo-datasource/pull/220))
