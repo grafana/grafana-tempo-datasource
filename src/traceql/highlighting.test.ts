@@ -131,10 +131,6 @@ describe('Highlighting', () => {
         '{span.http.status_code = 200} {span.http.status_code = 200}',
         'Invalid spanset combining operator after spanset expression.',
       ],
-      [
-        '{span.http.status_code = 200} + {span.http.status_code = 200}',
-        'Invalid spanset combining operator after spanset expression.',
-      ],
       ['{span.http.status_code = 200} &&', 'Invalid spanset expression after spanset combining operator.'],
       [
         '{span.http.status_code = 200} && {span.http.status_code = 200} | foo() > 3',
@@ -177,7 +173,7 @@ describe('Highlighting', () => {
       ['{.foo=300} && {.foo=300} | avg(.value)', 'Invalid comparison operator after aggregator operator.'],
       ['{.foo=300} | avg(.value) =', 'Invalid value after comparison operator.'],
       ['{.foo=300} && {.foo=300} | avg(.value) =', 'Invalid value after comparison operator.'],
-      ['{.foo=300} | max(duration) > 1hs', 'Invalid value after comparison operator.'],
+      ['{.foo=300} | max(duration) > 1hs', 'Invalid spanset combining operator after spanset expression.'],
       ['{ span.http.status_code', 'Invalid comparison operator after field expression.'],
       ['{ .foo = "bar"', 'Invalid comparison operator after field expression.'],
       ['abcxyz', 'Invalid query.'],
@@ -197,6 +193,7 @@ describe('Highlighting', () => {
       ['{true} << {true}'],
       ['{true} !>> {true}'],
       ['{true} !<< {true}'],
+      ['{span.http.status_code = 200} + {span.http.status_code = 200}'],
       [
         `{ true } /* && { false } && */ && { true } // && { false }
       && { true }`,
