@@ -2,6 +2,8 @@ import type { PluginOptions } from '@grafana/plugin-e2e';
 import { defineConfig, devices } from '@playwright/test';
 import { dirname } from 'node:path';
 
+import { isCloudRun } from './tests/e2e/env';
+
 const pluginE2eAuth = `${dirname(require.resolve('@grafana/plugin-e2e'))}/auth`;
 
 /**
@@ -17,10 +19,20 @@ export default defineConfig<PluginOptions>({
   testDir: './tests/e2e',
   /* Run tests in files in parallel */
   fullyParallel: true,
+  /*
+   * Cloud tests repeatedly download the plugin bundle from a shared instance.
+   * These polling ceilings allow for that contention without slowing fast runs.
+   */
+  timeout: isCloudRun ? 90_000 : 30_000,
+  expect: {
+    timeout: isCloudRun ? 30_000 : 5_000,
+  },
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
+  /* Avoid competing browser contexts on the shared Cloud instance. */
+  workers: isCloudRun ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
