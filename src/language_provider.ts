@@ -9,7 +9,6 @@ import {
   getTagsByScope,
   getUnscopedTags,
 } from './SearchTraceQLEditor/utils';
-import { DEFAULT_TIME_RANGE_FOR_TAGS } from './configuration/TagsTimeRangeSettings';
 import { type TraceqlFilter, TraceqlSearchScope } from './dataquery';
 import { type TempoDatasource } from './datasource';
 import { enumIntrinsics, intrinsicsV1 } from './traceql/traceql';
@@ -86,7 +85,7 @@ export default class TempoLanguageProvider extends LanguageProvider {
     const params: { limit: number; start?: number; end?: number } = {
       limit: this.getTagsLimit(),
     };
-    if (timeRangeForTags && range && timeRangeForTags !== DEFAULT_TIME_RANGE_FOR_TAGS) {
+    if (timeRangeForTags && range) {
       const { start, end } = this.getTimeRangeForTags(timeRangeForTags, range);
       params.start = start;
       params.end = end;
@@ -149,7 +148,7 @@ export default class TempoLanguageProvider extends LanguageProvider {
       params.q = getTemplateSrv().replace(query, {}, VariableFormatID.Pipe);
     }
 
-    if (timeRangeForTags && range && timeRangeForTags !== DEFAULT_TIME_RANGE_FOR_TAGS) {
+    if (timeRangeForTags && range) {
       const { start, end } = this.getTimeRangeForTags(timeRangeForTags, range);
       params.start = start;
       params.end = end;

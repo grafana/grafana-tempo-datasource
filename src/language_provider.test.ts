@@ -1,6 +1,9 @@
 import { uniq } from 'lodash';
 
+import { dateTime, type TimeRange } from '@grafana/data';
+
 import { v2Tags } from './SearchTraceQLEditor/mocks';
+import { DEFAULT_TIME_RANGE_FOR_TAGS } from './configuration/TagsTimeRangeSettings';
 import { TraceqlSearchScope } from './dataquery';
 import { type TempoDatasource } from './datasource';
 import TempoLanguageProvider from './language_provider';
@@ -338,6 +341,44 @@ describe('Language_provider', () => {
       const options = await lp.getOptionsV2({ tag: 'resource.service.name' });
 
       expect(options.map((option) => option.value)).toEqual(['api', 'beta', 'Hosted Grafana - Prod']);
+    });
+
+    it('sends an explicit range when timeRangeForTags is the default 30-minute value', async () => {
+      const metadataRequest = jest.fn().mockResolvedValue({ tagValues: [] });
+      const datasource = {
+        metadataRequest,
+        instanceSettings: {
+          jsonData: {},
+        },
+      } as unknown as TempoDatasource;
+      const lp = new TempoLanguageProvider(datasource);
+      const range = { from: dateTime('2000-01-01T00:00:00'), to: dateTime('2000-01-01T01:00:00') } as TimeRange;
+
+      await lp.getOptionsV2({ tag: 'resource.service.name', timeRangeForTags: DEFAULT_TIME_RANGE_FOR_TAGS, range });
+
+      const params = metadataRequest.mock.calls[0][1];
+      expect(params.start).toBe(range.to.unix() - DEFAULT_TIME_RANGE_FOR_TAGS);
+      expect(params.end).toBe(range.to.unix());
+    });
+  });
+
+  describe('fetchTags', () => {
+    it('sends an explicit range when timeRangeForTags is the default 30-minute value', async () => {
+      const metadataRequest = jest.fn().mockResolvedValue({ scopes: [] });
+      const datasource = {
+        metadataRequest,
+        instanceSettings: {
+          jsonData: {},
+        },
+      } as unknown as TempoDatasource;
+      const lp = new TempoLanguageProvider(datasource);
+      const range = { from: dateTime('2000-01-01T00:00:00'), to: dateTime('2000-01-01T01:00:00') } as TimeRange;
+
+      await lp.fetchTags(DEFAULT_TIME_RANGE_FOR_TAGS, range);
+
+      const params = metadataRequest.mock.calls[0][1];
+      expect(params.start).toBe(range.to.unix() - DEFAULT_TIME_RANGE_FOR_TAGS);
+      expect(params.end).toBe(range.to.unix());
     });
   });
 
