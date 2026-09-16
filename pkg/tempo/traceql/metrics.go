@@ -27,6 +27,11 @@ func TransformMetricsResponse(query string, resp tempopb.QueryRangeResponse) []*
 		}
 
 		timeField := data.NewField("time", nil, []time.Time{})
+		if resp.Step > 0 {
+			timeField.Config = &data.FieldConfig{
+				Interval: float64(time.Duration(resp.Step).Milliseconds()),
+			}
+		}
 
 		frame := &data.Frame{
 			RefID: name,
