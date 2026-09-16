@@ -115,6 +115,41 @@ describe('CompletionProvider', () => {
     ]);
   });
 
+  it('returns no suggestions when the completion request was cancelled while loading tag values', async () => {
+    const { provider, model } = setup('{.foo=}', 6, v2Tags);
+
+    jest.spyOn(provider.languageProvider, 'getOptionsV2').mockResolvedValue([
+      {
+        type: 'string',
+        value: 'foobar',
+        label: 'foobar',
+      },
+    ]);
+
+    const token = { isCancellationRequested: false } as monacoTypes.CancellationToken;
+    const result = provider.provideCompletionItems(model, emptyPosition, undefined, token);
+    // The user keeps typing, so Monaco cancels this request before the tag values arrive
+    Object.assign(token, { isCancellationRequested: true });
+
+    expect(((await result) as monacoTypes.languages.CompletionList).suggestions).toEqual([]);
+  });
+
+  it('reuses one tag values request id per tag so a superseded request gets cancelled', async () => {
+    const getOptionsV2 = jest.fn().mockResolvedValue([]);
+    const first = setup('{.foo="ba"}', 9, v2Tags);
+    const second = setup('{.foo="bar"}', 10, v2Tags);
+    first.provider.languageProvider.getOptionsV2 = getOptionsV2;
+    second.provider.languageProvider.getOptionsV2 = getOptionsV2;
+
+    await first.provider.provideCompletionItems(first.model, emptyPosition);
+    await second.provider.provideCompletionItems(second.model, emptyPosition);
+
+    const [firstCall, secondCall] = getOptionsV2.mock.calls.map((call) => call[0]);
+    expect(firstCall.query).not.toEqual(secondCall.query);
+    expect(firstCall.requestId).toEqual(`gdev-tempo-traceql-tag-values-${firstCall.tag}`);
+    expect(secondCall.requestId).toEqual(firstCall.requestId);
+  });
+
   it('suggests nothing without tags', async () => {
     const { provider, model } = setup('{.foo="}', 8, emptyTags);
     const result = await provider.provideCompletionItems(model, emptyPosition);

@@ -403,7 +403,9 @@ export class CompletionProvider implements monacoTypes.languages.CompletionItemP
 
   provideCompletionItems(
     model: monacoTypes.editor.ITextModel,
-    position: monacoTypes.Position
+    position: monacoTypes.Position,
+    _context?: monacoTypes.languages.CompletionContext,
+    token?: monacoTypes.CancellationToken
   ): monacoTypes.languages.ProviderResult<monacoTypes.languages.CompletionList> {
     // Should not happen, this should not be called before it is initialized
     if (!(this.monaco && this.editor)) {
@@ -422,6 +424,11 @@ export class CompletionProvider implements monacoTypes.languages.CompletionItemP
     const completionItems = situation != null ? this.getCompletions(situation, this.setAlertText) : Promise.resolve([]);
 
     return completionItems.then((items) => {
+      // Monaco already asked for a newer completion, so this result is stale and we drop it
+      if (token?.isCancellationRequested) {
+        return { suggestions: [] };
+      }
+
       const suggestions = completionItemsToSuggestions(
         items,
         range,
@@ -457,6 +464,9 @@ export class CompletionProvider implements monacoTypes.languages.CompletionItemP
         query,
         timeRangeForTags,
         range,
+        // The id is stable per tag and does not include the query, so typing another character
+        // in a value position cancels the request the new one supersedes
+        requestId: `${this.languageProvider.datasource.uid}-traceql-tag-values-${tagName}`,
       });
       this.cachedValues[cacheKey] = tagValues;
     }
@@ -528,7 +538,10 @@ export class CompletionProvider implements monacoTypes.languages.CompletionItemP
           tagValues = await this.getTagValues(situation.tagName, situation.query, this.timeRangeForTags, this.range);
           setAlertText(undefined);
         } catch (error) {
-          if (isFetchError(error)) {
+          if (isFetchError(error) && error.cancelled) {
+            // The request was cancelled because a newer one replaced it, nothing went wrong
+            return [];
+          } else if (isFetchError(error)) {
             setAlertText(error.data.error);
           } else if (error instanceof Error) {
             setAlertText(`Error: ${error.message}`);
