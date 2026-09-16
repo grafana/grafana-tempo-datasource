@@ -48,7 +48,10 @@ function getAttributeValue(value: collectorTypes.opentelemetryProto.common.v1.An
 
   if (value.arrayValue) {
     const arrayValue = [];
-    for (const arValue of value.arrayValue.values) {
+    // OTLP/JSON follows proto3 JSON, which omits empty repeated fields, so an
+    // empty array arrives as `{"arrayValue":{}}` with no `values`. Default to an
+    // empty list instead of iterating undefined.
+    for (const arValue of value.arrayValue.values ?? []) {
       arrayValue.push(getAttributeValue(arValue));
     }
     return arrayValue;
@@ -135,43 +138,125 @@ function getLogs(span: collectorTypes.opentelemetryProto.trace.v1.Span) {
   return logs;
 }
 
+// Minimal shape of an uploaded OTLP/JSON trace record. Grafana's file trace
+// exporter emits the modern schema (resourceSpans/scopeSpans/scope); older
+// tooling uses batches/instrumentationLibrarySpans/instrumentationLibrary.
+interface OtlpScope {
+  name?: string;
+  version?: string;
+}
+interface OtlpScopeSpans {
+  scope?: OtlpScope;
+  instrumentationLibrary?: OtlpScope;
+  spans?: collectorTypes.opentelemetryProto.trace.v1.Span[];
+}
+interface OtlpResourceSpans {
+  resource?: collectorTypes.opentelemetryProto.resource.v1.Resource;
+  scopeSpans?: OtlpScopeSpans[];
+  instrumentationLibrarySpans?: OtlpScopeSpans[];
+}
+interface OtlpTraceRecord {
+  resourceSpans?: OtlpResourceSpans[];
+  batches?: OtlpResourceSpans[];
+}
+
+/**
+ * Parses an uploaded trace file into the ResourceSpans shape transformFromOTLP
+ * expects. Accepts both the modern OTLP/JSON schema (resourceSpans/scopeSpans)
+ * and the legacy one (batches/instrumentationLibrarySpans). The file can be a
+ * single JSON document (compact or pretty-printed, for example from `jq`) or
+ * newline-delimited records (one ExportTraceServiceRequest per line) as emitted
+ * by the file trace exporter. Returns null if the input is not trace data.
+ */
+export function parseUploadedTraceData(raw: string): collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] | null {
+  // Try the whole file as a single JSON document first. This covers compact and
+  // pretty-printed JSON, where splitting on newlines would break parsing.
+  const whole = parseTraceRecord(raw);
+  if (whole) {
+    return whole;
+  }
+
+  // Otherwise treat the file as newline-delimited records. A single JSON document
+  // fails the whole-file parse only when it spans multiple top-level records, so
+  // this branch handles the file exporter's newline-delimited output.
+  const resourceSpans: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] = [];
+  const lines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  for (const line of lines) {
+    const record = parseTraceRecord(line);
+    if (!record) {
+      return null;
+    }
+    resourceSpans.push(...record);
+  }
+
+  return resourceSpans.length > 0 ? resourceSpans : null;
+}
+
+/**
+ * Parses a single JSON document into normalized ResourceSpans, or null if it
+ * isn't trace data. Shared by the whole-file and per-line paths.
+ */
+function parseTraceRecord(text: string): collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] | null {
+  let record: OtlpTraceRecord;
+  try {
+    record = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  // JSON.parse can yield null or a primitive (e.g. the input is `null` or `5`);
+  // typeof null is "object", so guard it explicitly before reading fields.
+  if (record === null || typeof record !== 'object') {
+    return null;
+  }
+  const spans = record.resourceSpans ?? record.batches;
+  if (!Array.isArray(spans)) {
+    return null;
+  }
+
+  const resourceSpans: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] = [];
+  for (const rs of spans) {
+    // Accept either the modern (scopeSpans) or legacy (instrumentationLibrarySpans)
+    // key; anything else is malformed/unsupported and should surface as an error.
+    const scopeSpans = rs.scopeSpans ?? rs.instrumentationLibrarySpans;
+    if (!Array.isArray(scopeSpans)) {
+      return null;
+    }
+    resourceSpans.push({
+      resource: rs.resource,
+      instrumentationLibrarySpans: scopeSpans.map((ss) => {
+        const library = ss.scope ?? ss.instrumentationLibrary;
+        return {
+          instrumentationLibrary: library ? { name: library.name ?? '', version: library.version } : undefined,
+          spans: ss.spans ?? [],
+        };
+      }),
+    });
+  }
+  return resourceSpans.length > 0 ? resourceSpans : null;
+}
+
 export function transformFromOTLP(
   traceData: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
   nodeGraph = false
 ): DataQueryResponse {
-  const frame = new MutableDataFrame({
-    fields: [
-      { name: 'traceID', type: FieldType.string, values: [] },
-      { name: 'spanID', type: FieldType.string, values: [] },
-      { name: 'parentSpanID', type: FieldType.string, values: [] },
-      { name: 'operationName', type: FieldType.string, values: [] },
-      { name: 'serviceName', type: FieldType.string, values: [] },
-      { name: 'serviceNamespace', type: FieldType.string, values: [] },
-      { name: 'kind', type: FieldType.string, values: [] },
-      { name: 'statusCode', type: FieldType.number, values: [] },
-      { name: 'statusMessage', type: FieldType.string, values: [] },
-      { name: 'instrumentationLibraryName', type: FieldType.string, values: [] },
-      { name: 'instrumentationLibraryVersion', type: FieldType.string, values: [] },
-      { name: 'traceState', type: FieldType.string, values: [] },
-      { name: 'serviceTags', type: FieldType.other, values: [] },
-      { name: 'startTime', type: FieldType.number, values: [] },
-      { name: 'duration', type: FieldType.number, values: [] },
-      { name: 'logs', type: FieldType.other, values: [] },
-      { name: 'references', type: FieldType.other, values: [] },
-      { name: 'tags', type: FieldType.other, values: [] },
-    ],
-    meta: {
-      preferredVisualisationType: 'trace',
-      custom: {
-        traceFormat: 'otlp',
-      },
-    },
-  });
+  // Grafana's TraceView renders dataFrames[0] and applies its first row's trace ID
+  // to every span in that frame, so each frame must hold a single trace. Group spans
+  // by trace ID and emit one frame per trace, otherwise a file with multiple traces
+  // is rendered as a single merged (and broken) trace.
+  const framesByTraceId = new Map<string, MutableDataFrame>();
   try {
     for (const data of traceData) {
       const { serviceName, serviceNamespace, serviceTags } = resourceToProcess(data.resource);
       for (const librarySpan of data.instrumentationLibrarySpans) {
         for (const span of librarySpan.spans) {
+          let frame = framesByTraceId.get(span.traceId);
+          if (!frame) {
+            frame = createTraceDataFrame();
+            framesByTraceId.set(span.traceId, frame);
+          }
           frame.add({
             traceID: span.traceId,
             spanID: span.spanId,
@@ -200,12 +285,48 @@ export function transformFromOTLP(
     return { error: { message: 'JSON is not valid OpenTelemetry format: ' + error }, data: [] };
   }
 
-  let data = [frame];
+  const frames = [...framesByTraceId.values()];
+  const data: MutableDataFrame[] = [...frames];
   if (nodeGraph) {
-    data.push(...(createNodeGraphFrames(frame) as MutableDataFrame[]));
+    for (const frame of frames) {
+      data.push(...(createNodeGraphFrames(frame) as MutableDataFrame[]));
+    }
   }
 
   return { data };
+}
+
+// createTraceDataFrame builds an empty single-trace dataframe with the fields the
+// Grafana trace view expects.
+function createTraceDataFrame(): MutableDataFrame {
+  return new MutableDataFrame({
+    fields: [
+      { name: 'traceID', type: FieldType.string, values: [] },
+      { name: 'spanID', type: FieldType.string, values: [] },
+      { name: 'parentSpanID', type: FieldType.string, values: [] },
+      { name: 'operationName', type: FieldType.string, values: [] },
+      { name: 'serviceName', type: FieldType.string, values: [] },
+      { name: 'serviceNamespace', type: FieldType.string, values: [] },
+      { name: 'kind', type: FieldType.string, values: [] },
+      { name: 'statusCode', type: FieldType.number, values: [] },
+      { name: 'statusMessage', type: FieldType.string, values: [] },
+      { name: 'instrumentationLibraryName', type: FieldType.string, values: [] },
+      { name: 'instrumentationLibraryVersion', type: FieldType.string, values: [] },
+      { name: 'traceState', type: FieldType.string, values: [] },
+      { name: 'serviceTags', type: FieldType.other, values: [] },
+      { name: 'startTime', type: FieldType.number, values: [] },
+      { name: 'duration', type: FieldType.number, values: [] },
+      { name: 'logs', type: FieldType.other, values: [] },
+      { name: 'references', type: FieldType.other, values: [] },
+      { name: 'tags', type: FieldType.other, values: [] },
+    ],
+    meta: {
+      preferredVisualisationType: 'trace',
+      custom: {
+        traceFormat: 'otlp',
+      },
+    },
+  });
 }
 
 /**
