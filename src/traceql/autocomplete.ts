@@ -29,6 +29,9 @@ interface Props {
   range?: TimeRange;
 }
 
+// Each editor gets its own CompletionProvider, so we number them to keep their request ids apart
+let instanceCount = 0;
+
 /**
  * Class that implements CompletionItemProvider interface and allows us to provide suggestion for the Monaco
  * autocomplete system.
@@ -42,6 +45,8 @@ export class CompletionProvider implements monacoTypes.languages.CompletionItemP
   setAlertText: (text?: string) => void;
   timeRangeForTags?: number;
   range?: TimeRange;
+
+  private readonly instanceId = ++instanceCount;
 
   constructor(props: Props) {
     this.languageProvider = props.languageProvider;
@@ -418,6 +423,11 @@ export class CompletionProvider implements monacoTypes.languages.CompletionItemP
       return { suggestions: [] };
     }
 
+    // Monaco cancelled this request before we started, so there is no point in asking Tempo anything
+    if (token?.isCancellationRequested) {
+      return { suggestions: [] };
+    }
+
     const { range, offset } = getRangeAndOffset(this.monaco, model, position);
 
     const situation = getSituation(model.getValue(), offset);
@@ -465,8 +475,9 @@ export class CompletionProvider implements monacoTypes.languages.CompletionItemP
         timeRangeForTags,
         range,
         // The id is stable per tag and does not include the query, so typing another character
-        // in a value position cancels the request the new one supersedes
-        requestId: `${this.languageProvider.datasource.uid}-traceql-tag-values-${tagName}`,
+        // in a value position cancels the request the new one supersedes. It also carries the
+        // instance id so two editors on the same datasource and tag do not cancel each other.
+        requestId: `${this.languageProvider.datasource.uid}-${this.instanceId}-traceql-tag-values-${tagName}`,
       });
       this.cachedValues[cacheKey] = tagValues;
     }

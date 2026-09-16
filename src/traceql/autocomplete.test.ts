@@ -1,4 +1,5 @@
 import { type DataSourceInstanceSettings, type PluginMetaInfo, PluginType } from '@grafana/data';
+import { setTemplateSrv, type TemplateSrv } from '@grafana/runtime';
 import { type monacoTypes } from '@grafana/ui';
 
 import { v2Tags, emptyTags, testIntrinsics } from '../SearchTraceQLEditor/mocks';
@@ -16,6 +17,12 @@ jest.mock('@grafana/runtime', () => ({
 }));
 
 describe('CompletionProvider', () => {
+  beforeAll(() => {
+    // The tag values request interpolates the query, so the tests that go all the way to the
+    // datasource need a template service
+    setTemplateSrv({ replace: (target?: string) => target ?? '' } as unknown as TemplateSrv);
+  });
+
   it('suggests tags, intrinsics and scopes (API v2)', async () => {
     const { provider, model } = setup('{}', 1, v2Tags);
     const result = await provider.provideCompletionItems(model, emptyPosition);
@@ -134,20 +141,57 @@ describe('CompletionProvider', () => {
     expect(((await result) as monacoTypes.languages.CompletionList).suggestions).toEqual([]);
   });
 
+  it('does not ask for tag values when the completion request is cancelled before it starts', async () => {
+    const { provider, model } = setup('{.foo=}', 6, v2Tags);
+    const metadataRequest = jest.fn().mockResolvedValue({ tagValues: [{ type: 'string', value: 'foobar' }] });
+    provider.languageProvider.datasource.metadataRequest = metadataRequest;
+
+    const token = { isCancellationRequested: true } as monacoTypes.CancellationToken;
+    const result = await provider.provideCompletionItems(model, emptyPosition, undefined, token);
+
+    expect((result as monacoTypes.languages.CompletionList).suggestions).toEqual([]);
+    expect(metadataRequest).not.toHaveBeenCalled();
+  });
+
   it('reuses one tag values request id per tag so a superseded request gets cancelled', async () => {
-    const getOptionsV2 = jest.fn().mockResolvedValue([]);
+    const { provider, model } = setup('{.foo="ba"}', 9, v2Tags);
+    let resolveFirst: (response: unknown) => void = () => {};
+    const firstResponse = new Promise((resolve) => {
+      resolveFirst = resolve;
+    });
+    const metadataRequest = jest.fn().mockReturnValueOnce(firstResponse).mockResolvedValue({ tagValues: [] });
+    provider.languageProvider.datasource.metadataRequest = metadataRequest;
+
+    const first = provider.provideCompletionItems(model, emptyPosition);
+    // The user types another character while the first request is still in flight
+    const second = provider.provideCompletionItems(
+      makeModel('{.foo="bar"}', 10) as unknown as monacoTypes.editor.ITextModel,
+      emptyPosition
+    );
+
+    expect(metadataRequest).toHaveBeenCalledTimes(2);
+    resolveFirst({ tagValues: [] });
+    await Promise.all([first, second]);
+
+    const [firstCall, secondCall] = metadataRequest.mock.calls;
+    expect(firstCall[1].q).not.toEqual(secondCall[1].q);
+    expect(firstCall[2]).toMatch(/^gdev-tempo-\d+-traceql-tag-values-/);
+    expect(secondCall[2]).toEqual(firstCall[2]);
+  });
+
+  it('uses a different tag values request id per editor so two editors do not cancel each other', async () => {
     const first = setup('{.foo="ba"}', 9, v2Tags);
-    const second = setup('{.foo="bar"}', 10, v2Tags);
-    first.provider.languageProvider.getOptionsV2 = getOptionsV2;
-    second.provider.languageProvider.getOptionsV2 = getOptionsV2;
+    const second = setup('{.foo="ba"}', 9, v2Tags);
+    const metadataRequest = jest.fn().mockResolvedValue({ tagValues: [] });
+    first.provider.languageProvider.datasource.metadataRequest = metadataRequest;
+    second.provider.languageProvider.datasource.metadataRequest = metadataRequest;
 
     await first.provider.provideCompletionItems(first.model, emptyPosition);
     await second.provider.provideCompletionItems(second.model, emptyPosition);
 
-    const [firstCall, secondCall] = getOptionsV2.mock.calls.map((call) => call[0]);
-    expect(firstCall.query).not.toEqual(secondCall.query);
-    expect(firstCall.requestId).toEqual(`gdev-tempo-traceql-tag-values-${firstCall.tag}`);
-    expect(secondCall.requestId).toEqual(firstCall.requestId);
+    const [firstCall, secondCall] = metadataRequest.mock.calls;
+    expect(firstCall[1].q).toEqual(secondCall[1].q);
+    expect(firstCall[2]).not.toEqual(secondCall[2]);
   });
 
   it('suggests nothing without tags', async () => {
