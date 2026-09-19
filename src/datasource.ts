@@ -860,14 +860,15 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     return request;
   }
 
-  async metadataRequest(url: string, params = {}) {
+  async metadataRequest(url: string, params = {}, requestId?: string) {
     // url must not start with a `/`, otherwise the AJAX-request
     // going from the browser will contain `//`, which can cause problems.
     if (url.startsWith('/')) {
       throw new Error(`invalid metadata request url: ${url}`);
     }
 
-    const res = await this.getResource(url, params, { method: 'GET', hideFromInspector: true });
+    // With a requestId Grafana cancels an in flight request that shares the same id
+    const res = await this.getResource(url, params, { method: 'GET', hideFromInspector: true, requestId });
     return res?.data ?? res;
   }
 

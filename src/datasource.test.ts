@@ -331,6 +331,17 @@ describe('Tempo data source', () => {
       const response = await ds.metadataRequest('api/v2/search/tags');
       expect(response).toBe('test-data');
     });
+
+    it('should pass the request id to getResource so an in flight request can be cancelled', async () => {
+      const ds = new TempoDatasource(defaultSettings);
+      const getResource = jest.spyOn(ds, 'getResource').mockResolvedValue({ data: 'test-data' });
+      await ds.metadataRequest('tag-values', { tag: 'span.foo' }, 'tag-values-span.foo');
+      expect(getResource).toHaveBeenCalledWith(
+        'tag-values',
+        { tag: 'span.foo' },
+        expect.objectContaining({ requestId: 'tag-values-span.foo' })
+      );
+    });
   });
 
   it('should include time shift when querying for traceID', () => {

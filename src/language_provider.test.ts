@@ -298,6 +298,21 @@ describe('Language_provider', () => {
   });
 
   describe('getOptionsV2', () => {
+    it('forwards the request id to the metadata request', async () => {
+      const metadataRequest = jest.fn().mockResolvedValue({ tagValues: [] });
+      const datasource = {
+        metadataRequest,
+        instanceSettings: {
+          jsonData: {},
+        },
+      } as unknown as TempoDatasource;
+      const lp = new TempoLanguageProvider(datasource);
+
+      await lp.getOptionsV2({ tag: 'resource.service.name', requestId: 'tag-values-resource.service.name' });
+
+      expect(metadataRequest).toHaveBeenCalledWith('tag-values', expect.anything(), 'tag-values-resource.service.name');
+    });
+
     it('sorts returned tag values alphabetically', async () => {
       const metadataRequest = jest.fn().mockResolvedValue({
         tagValues: [
