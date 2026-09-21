@@ -2,14 +2,10 @@ import { expect, test } from '@grafana/plugin-e2e';
 import { type Locator, type Page } from '@playwright/test';
 
 import { type TempoJsonData } from '../../src/types';
+import { DS_URL, isCloudRun, resolveDataSourceUid } from './env';
 
 const PLUGIN_TYPE = 'tempo';
 const PROVISIONED_FILE = 'datasources.yml';
-
-// In CI/Cloud the data source URL is provisioned from Vault and exposed via
-// DS_INSTANCE_URL. Locally docker-compose names the backend `tempo` and the
-// provisioned datasources.yml uses http://tempo:3200.
-const DS_URL = process.env.DS_INSTANCE_URL || 'http://tempo:3200';
 
 // Grafana 12.4+ replaced the legacy `DataSourceHttpSettings` (with the "HTTP"
 // heading and `data-testid Datasource HTTP settings url` id) with the new
@@ -35,33 +31,32 @@ function getConnectionHeading(page: Page): Locator {
 
 test.describe('Config editor', () => {
   test.describe('rendering', () => {
-    test(
-      'smoke: should render config editor',
-      { tag: '@plugins' },
-      async ({ createDataSourceConfigPage, page }) => {
-        await createDataSourceConfigPage({ type: PLUGIN_TYPE });
+    test('smoke: should render config editor', { tag: '@plugins' }, async ({ createDataSourceConfigPage, page }) => {
+      await createDataSourceConfigPage({ type: PLUGIN_TYPE });
 
-        // Grafana <=13.0: "Type: Tempo" subtitle in the page header.
-        // Grafana >=13.1: subtitle removed (grafana/grafana#123966).
-        // Fall back to the Connection heading so this also serves as the
-        // page-load wait on builds where the type label is gone.
-        await expect(
-          page
-            .getByText('Type: Tempo', { exact: true })
-            .or(page.getByText(/^Type\s*Tempo$/))
-            .or(getConnectionHeading(page))
-            .first()
-        ).toBeVisible({ timeout: 30_000 });
-        await expect(getConnectionHeading(page)).toBeVisible();
-        await expect(getDataSourceConnectionUrlInput(page)).toBeVisible();
-        // Grafana >=13.1 replaced the #basic-settings-name input with an inline
-        // editable heading. Match both shapes so the test works across versions.
-        // .first() avoids a strict-mode violation on builds that render both.
-        await expect(
-          page.locator('#basic-settings-name').or(page.getByRole('button', { name: 'Edit title' })).first()
-        ).toBeVisible();
-      }
-    );
+      // Grafana <=13.0: "Type: Tempo" subtitle in the page header.
+      // Grafana >=13.1: subtitle removed (grafana/grafana#123966).
+      // Fall back to the Connection heading so this also serves as the
+      // page-load wait on builds where the type label is gone.
+      await expect(
+        page
+          .getByText('Type: Tempo', { exact: true })
+          .or(page.getByText(/^Type\s*Tempo$/))
+          .or(getConnectionHeading(page))
+          .first()
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(getConnectionHeading(page)).toBeVisible();
+      await expect(getDataSourceConnectionUrlInput(page)).toBeVisible();
+      // Grafana >=13.1 replaced the #basic-settings-name input with an inline
+      // editable heading. Match both shapes so the test works across versions.
+      // .first() avoids a strict-mode violation on builds that render both.
+      await expect(
+        page
+          .locator('#basic-settings-name')
+          .or(page.getByRole('button', { name: 'Edit title' }))
+          .first()
+      ).toBeVisible();
+    });
 
     test('should render Authentication section', async ({ createDataSourceConfigPage, page }) => {
       await createDataSourceConfigPage({ type: PLUGIN_TYPE });
@@ -118,6 +113,10 @@ test.describe('Config editor', () => {
   });
 
   test.describe('provisioned datasource', () => {
+    test.beforeEach(() => {
+      test.skip(isCloudRun, 'Relies on the local provisioning file and docker-compose settings.');
+    });
+
     test('should load provisioned URL', async ({ readProvisionedDataSource, gotoDataSourceConfigPage, page }) => {
       const ds = await readProvisionedDataSource<TempoJsonData>({ fileName: PROVISIONED_FILE });
       await gotoDataSourceConfigPage(ds.uid);
@@ -153,6 +152,8 @@ test.describe('Config editor', () => {
       gotoDataSourceConfigPage,
       page,
     }) => {
+      test.skip(isCloudRun, 'Relies on the locally provisioned Tempo data source.');
+
       const ds = await readProvisionedDataSource({ fileName: PROVISIONED_FILE });
       const configPage = await gotoDataSourceConfigPage(ds.uid);
 
@@ -179,10 +180,23 @@ test.describe('Config editor', () => {
 
       await expect(getConnectionHeading(page)).toBeVisible({ timeout: 30_000 });
       // Point at a port nothing is listening on (uses the Cloud host where present).
-      const url = DS_URL.replace(/:(\d+)$/, ':13200');
-      await getDataSourceConnectionUrlInput(page).fill(url);
+      const url = new URL(DS_URL);
+      url.port = '13200';
+      await getDataSourceConnectionUrlInput(page).fill(url.toString());
       await page.getByRole('button', { name: /^(Save & test|Test)$/ }).click();
       await expect(configPage).toHaveAlert('error');
     });
+  });
+});
+
+test.describe('cloud datasource', () => {
+  test.beforeEach(() => {
+    test.skip(!isCloudRun, 'Targets the data source provisioned on the shared Cloud instance.');
+  });
+
+  test('should pass health check for the Cloud-provisioned datasource', async ({ gotoDataSourceConfigPage, page }) => {
+    const configPage = await gotoDataSourceConfigPage(await resolveDataSourceUid(page));
+    await page.getByRole('button', { name: /^(Save & test|Test)$/ }).click();
+    await expect(configPage).toHaveAlert('success');
   });
 });

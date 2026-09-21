@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grafana/grafana-plugin-sdk-go/backend/useragent"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel/attribute"
@@ -255,7 +256,7 @@ func CustomHeadersStreamInterceptor(httpOpts httpclient.Options) grpc.StreamClie
 func UserAgentStreamInterceptor() grpc.StreamClientInterceptor {
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 		// Get user agent from context and add it to the outgoing metadata
-		if userAgent := backend.UserAgentFromContext(ctx); userAgent != nil {
+		if userAgent := useragent.FromContext(ctx); userAgent != nil {
 			ctx = metadata.AppendToOutgoingContext(ctx, "User-Agent", userAgent.String())
 		}
 

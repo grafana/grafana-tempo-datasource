@@ -331,6 +331,17 @@ describe('Tempo data source', () => {
       const response = await ds.metadataRequest('api/v2/search/tags');
       expect(response).toBe('test-data');
     });
+
+    it('should pass the request id to getResource so an in flight request can be cancelled', async () => {
+      const ds = new TempoDatasource(defaultSettings);
+      const getResource = jest.spyOn(ds, 'getResource').mockResolvedValue({ data: 'test-data' });
+      await ds.metadataRequest('tag-values', { tag: 'span.foo' }, 'tag-values-span.foo');
+      expect(getResource).toHaveBeenCalledWith(
+        'tag-values',
+        { tag: 'span.foo' },
+        expect.objectContaining({ requestId: 'tag-values-span.foo' })
+      );
+    });
   });
 
   it('should include time shift when querying for traceID', () => {
@@ -1169,6 +1180,31 @@ describe('should provide functionality for ad-hoc filters', () => {
   });
 
   it('for getTagValues', async () => {
+    const now = dateTime('2021-04-20T15:55:00Z');
+    const options = {
+      key: 'span.label1',
+      filters: [],
+      timeRange: {
+        from: now,
+        to: now,
+        raw: {
+          from: 'now-15m',
+          to: 'now',
+        },
+      },
+    };
+    const response = await datasource.getTagValues(options);
+    expect(response).toEqual([
+      { text: 'value1', properties: { valueType: 'string' } },
+      { text: 'value2', properties: { valueType: 'string' } },
+    ]);
+  });
+
+  it('for getTagValues with missing type', async () => {
+    jest.spyOn(datasource.languageProvider, 'getOptionsV2').mockResolvedValue([
+      { value: 'value1', label: 'value1' },
+      { value: 'value2', label: 'value2' },
+    ]);
     const now = dateTime('2021-04-20T15:55:00Z');
     const options = {
       key: 'span.label1',

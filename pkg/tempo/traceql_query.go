@@ -99,9 +99,14 @@ func (ds *DataSource) runTraceQlQueryMetrics(ctx context.Context, pCtx backend.P
 		return nil, err
 	}
 
+	// Always allow unknown fields so that Tempo can add new non-breaking fields as needed.
+	unmarshaler := jsonpb.Unmarshaler{
+		AllowUnknownFields: true,
+	}
+
 	if isInstantQuery(tempoQuery.MetricsQueryType) {
 		var queryResponse tempopb.QueryInstantResponse
-		err = jsonpb.Unmarshal(bytes.NewReader(responseBody), &queryResponse)
+		err = unmarshaler.Unmarshal(bytes.NewReader(responseBody), &queryResponse)
 
 		if res, err := handleConversionError(ctxLogger, span, err); err != nil {
 			return res, err
@@ -111,11 +116,6 @@ func (ds *DataSource) runTraceQlQueryMetrics(ctx context.Context, pCtx backend.P
 		result.Frames = frames
 	} else {
 		var queryResponse tempopb.QueryRangeResponse
-		// Temporarily allow extra fields until proto changes are available (https://github.com/grafana/tempo/pull/4525)
-		unmarshaler := jsonpb.Unmarshaler{
-			AllowUnknownFields: true,
-		}
-
 		err = unmarshaler.Unmarshal(bytes.NewReader(responseBody), &queryResponse)
 
 		if res, err := handleConversionError(ctxLogger, span, err); err != nil {
