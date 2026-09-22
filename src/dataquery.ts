@@ -2,18 +2,34 @@ import * as common from '@grafana/schema';
 
 export interface TempoQuery extends common.DataQuery {
   /**
+   * Depth of ancestor spans to include in the response; only sent when keepHierarchy is true. Maps to Tempo's `ancestor_depth` filter param
+   */
+  ancestorDepth?: number;
+  /**
    * For metric queries, how many exemplars to request, 0 means no exemplars
    */
   exemplars?: number;
+  /**
+   * TraceQL-like spanset filter applied to spans within the trace, distinct from the trace ID. Maps to Tempo's `q` filter param
+   */
+  filterQuery?: string;
   filters: TraceqlFilter[];
   /**
    * deprecated Filters that are used to query the metrics summary
    */
   groupBy?: TraceqlFilter[];
   /**
+   * Whether to keep the full span hierarchy when filtering the trace. Maps to Tempo's `keep_hierarchy` filter param
+   */
+  keepHierarchy?: boolean;
+  /**
    * Defines the maximum number of traces that are returned from Tempo
    */
   limit?: number;
+  /**
+   * Depth of matching spans to include in the response. Maps to Tempo's `match_depth` filter param
+   */
+  matchDepth?: number;
   /**
    * @deprecated Define the maximum duration to select traces. Use duration format, for example: 1.2s, 100ms
    */
@@ -54,6 +70,22 @@ export interface TempoQuery extends common.DataQuery {
    * @deprecated Query traces by span name
    */
   spanName?: string;
+  /**
+   * Whether to enable span pruning for the trace. Maps to Tempo's `span_pruning` param
+   */
+  spanPruning?: boolean;
+  /**
+   * Comma-separated attribute names used to group spans for pruning. Maps to Tempo's `span_pruning_group_by` param
+   */
+  spanPruningGroupBy?: string;
+  /**
+   * Maximum parent depth to preserve when pruning spans. Maps to Tempo's `span_pruning_max_parent_depth` param
+   */
+  spanPruningMaxParentDepth?: number;
+  /**
+   * Minimum number of spans in a group required before pruning is applied. Maps to Tempo's `span_pruning_min_spans` param
+   */
+  spanPruningMinSpans?: number;
   /**
    * Defines the maximum number of spans per spanset that are returned from Tempo
    */

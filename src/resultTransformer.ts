@@ -510,7 +510,7 @@ function getDataLinks(instanceSettings: DataSourceInstanceSettings): DataLink[] 
       title: 'View trace',
       url: '',
       internal: {
-        query: { query: '${__value.raw}', queryType: 'traceql' },
+        query: { query: '${__value.raw}', queryType: 'traceId' },
         datasourceUid: instanceSettings.uid,
         datasourceName: instanceSettings?.name ?? 'Data source not found',
       },
@@ -575,7 +575,7 @@ export function createTableFrameFromTraceQlQuery(
                 datasourceName: instanceSettings.name,
                 query: {
                   query: '${__value.raw}',
-                  queryType: 'traceql',
+                  queryType: 'traceId',
                 },
               },
             },
@@ -729,7 +729,7 @@ export function createTableFrameFromTraceQlQueryAsSpans(
                 datasourceName: instanceSettings.name,
                 query: {
                   query: '${__data.fields.traceIdHidden}',
-                  queryType: 'traceql',
+                  queryType: 'traceId',
                 },
                 panelsState: {
                   trace: {
@@ -861,7 +861,7 @@ const traceSubFrame = (
                 datasourceName: instanceSettings.name,
                 query: {
                   query: '${__data.fields.traceIdHidden}',
-                  queryType: 'traceql',
+                  queryType: 'traceId',
                 },
                 panelsState: {
                   trace: {

@@ -133,6 +133,43 @@ describe('Tempo data source', () => {
     expect(response).toBe('empty');
   });
 
+  describe('Trace ID tab', () => {
+    const templateSrv: TemplateSrv = { replace: (s: string) => s } as unknown as TemplateSrv;
+
+    // Restore via afterEach (not a manual mockRestore() at the end of the test body) so a failed
+    // assertion above it can't leave handleTraceIdQuery mocked for every later test in this file.
+    afterEach(() => jest.restoreAllMocks());
+
+    it('dispatches to handleTraceIdQuery with the traceId targets and query value', async () => {
+      const ds = new TempoDatasource(defaultSettings, templateSrv);
+      const handleTraceIdQuery = jest
+        .spyOn(TempoDatasource.prototype, 'handleTraceIdQuery')
+        .mockReturnValue(of({ data: [] }));
+
+      const target: Partial<TempoQuery> = { refId: 'refid1', queryType: 'traceId', query: 'abc123' };
+      const request = {
+        targets: [target as TempoQuery],
+      } as DataQueryRequest<TempoQuery>;
+
+      await lastValueFrom(ds.query(request));
+
+      // datasource.ts defaults spanPruning to true for this tab before dispatching, so the target
+      // handed to handleTraceIdQuery always carries it explicitly.
+      expect(handleTraceIdQuery).toHaveBeenCalledWith(request, [{ ...target, spanPruning: true }], 'abc123');
+    });
+
+    it('returns empty response when the traceId tab query is empty', async () => {
+      const ds = new TempoDatasource(defaultSettings, templateSrv);
+      const response = await lastValueFrom(
+        ds.query({
+          targets: [{ refId: 'refid1', queryType: 'traceId', query: '' } as Partial<TempoQuery>],
+        } as DataQueryRequest<TempoQuery>),
+        { defaultValue: 'empty' }
+      );
+      expect(response).toBe('empty');
+    });
+  });
+
   describe('Variables should be interpolated correctly', () => {
     function getQuery(serviceMapQuery: string | string[] = '$interpolationVar'): TempoQuery {
       return {
