@@ -424,6 +424,33 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
       }
     }
 
+    // Trace ID (dedicated tab)
+    if (targets.traceId?.length) {
+      try {
+        // span_pruning always defaults to true for this tab, rather than being omitted and left
+        // to Tempo's own server-side default, so the tab's behavior doesn't silently drift with
+        // per-tenant server config. Only applied here, not in handleTraceIdQuery, since that's
+        // shared with the TraceQL tab's implicit hex-string trace-ID lookup, which must not gain
+        // a param it never sent before.
+        const traceIdTargets = targets.traceId.map((t) => ({ ...t, spanPruning: t.spanPruning ?? true }));
+        const appliedQuery = this.applyVariables(traceIdTargets[0], options.scopedVars);
+        const queryValue = appliedQuery?.query || '';
+
+        reportInteraction('grafana_traces_traceId_tab_queried', {
+          datasourceType: 'tempo',
+          app: options.app ?? '',
+          grafana_version: config.buildInfo.version,
+          hasQuery: queryValue !== '',
+          spanPruningEnabled: traceIdTargets[0].spanPruning,
+          keepHierarchyEnabled: !!traceIdTargets[0].keepHierarchy,
+        });
+
+        subQueries.push(this.handleTraceIdQuery(options, traceIdTargets, queryValue));
+      } catch (error) {
+        return of({ error: { message: error instanceof Error ? error.message : 'Unknown error occurred' }, data: [] });
+      }
+    }
+
     // Search
     if (targets.traceqlSearch?.length) {
       if (targets.traceqlSearch[0].groupBy) {
