@@ -602,7 +602,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     query: string
   ): Observable<DataQueryResponse> {
     const validTargets = targets
-      .filter((t) => t.query)
+      .filter((t) => t.query?.trim())
       .map((t): TempoQuery => ({ ...t, query: t.query?.trim(), queryType: 'traceId' }));
     if (!validTargets.length) {
       return EMPTY;
