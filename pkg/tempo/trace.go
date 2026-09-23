@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,8 +23,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
-
-var traceIDPattern = regexp.MustCompile(`^[0-9A-Fa-f]+$`)
 
 func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, query backend.DataQuery) (*backend.DataResponse, error) {
 	ctxLogger := ds.logger.FromContext(ctx)
@@ -247,9 +244,6 @@ func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo,
 	ctxLogger := ds.logger.FromContext(ctx)
 
 	traceID := *model.Query
-	if !traceIDPattern.MatchString(traceID) {
-		return nil, backend.DownstreamErrorf("invalid trace id")
-	}
 
 	baseUrl, err := url.Parse(dsInfo.URL)
 	if err != nil {
@@ -259,10 +253,28 @@ func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo,
 
 	var traceUrl *url.URL
 	if apiVersion == TraceRequestApiVersionV1 {
-		traceUrl = baseUrl.JoinPath("api", "traces", traceID)
+		traceUrl = baseUrl.JoinPath("api", "traces")
 	} else {
-		traceUrl = baseUrl.JoinPath("api", "v2", "traces", traceID)
+		traceUrl = baseUrl.JoinPath("api", "v2", "traces")
 	}
+
+	// Forward whatever the caller typed as a single opaque path segment and let Tempo be the
+	// sole judge of what's valid -- if Tempo starts accepting hints appended after the trace ID,
+	// this needs no change. traceID is appended by hand, not via JoinPath (which would clean "/"
+	// and ".." out of it via path.Join), so an embedded "/" can't be used to escape this URL's
+	// "api/(v2/)traces" prefix; Path and RawPath are set explicitly in lockstep so the escaping
+	// isn't computed a second time by url.URL.String().
+	prefixEscaped := traceUrl.EscapedPath()
+	escapedTraceID := url.PathEscape(traceID)
+	// url.PathEscape never touches ".", so a traceID of exactly "." or ".." would otherwise
+	// reach the wire as a literal dot-segment -- RFC 3986 path resolution (and Tempo's router)
+	// treats those as "this directory"/"parent directory", not opaque data, which is exactly
+	// the kind of prefix-escaping the comment above promises. Break that meaning explicitly.
+	if escapedTraceID == "." || escapedTraceID == ".." {
+		escapedTraceID = strings.ReplaceAll(escapedTraceID, ".", "%2E")
+	}
+	traceUrl.Path += "/" + traceID
+	traceUrl.RawPath = prefixEscaped + "/" + escapedTraceID
 
 	// Using url.Values keeps any query parameters already present in the configured
 	// data source URL instead of clobbering them with a second "?".

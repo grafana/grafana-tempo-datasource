@@ -168,6 +168,17 @@ describe('Tempo data source', () => {
       );
       expect(response).toBe('empty');
     });
+
+    it('returns empty response when the traceId tab query is whitespace-only', async () => {
+      const ds = new TempoDatasource(defaultSettings, templateSrv);
+      const response = await lastValueFrom(
+        ds.query({
+          targets: [{ refId: 'refid1', queryType: 'traceId', query: '   ' } as Partial<TempoQuery>],
+        } as DataQueryRequest<TempoQuery>),
+        { defaultValue: 'empty' }
+      );
+      expect(response).toBe('empty');
+    });
   });
 
   describe('Variables should be interpolated correctly', () => {

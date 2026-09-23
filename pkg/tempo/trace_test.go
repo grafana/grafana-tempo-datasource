@@ -158,6 +158,61 @@ func TestTempo(t *testing.T) {
 		assert.Equal(t, "http://tempo/api/v2/traces/abc123", req.URL.String())
 	})
 
+	t.Run("createRequest forwards a trace ID with trailing content as one escaped path segment", func(t *testing.T) {
+		// Grafana no longer parses or validates this field's content beyond building a safe URL --
+		// Tempo is the sole authority on what's valid, so it can accept new syntax here (e.g. hints)
+		// without any change on this side. Tempo will reject this particular value itself, since
+		// "abc123 with(hint=true)" isn't a valid trace ID, but that's Tempo's call to make.
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, traceIDModel("abc123 with(hint=true)"), 0, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123%20with%28hint=true%29", req.URL.String())
+	})
+
+	t.Run("createRequest forwards leading/trailing whitespace verbatim, escaped, not trimmed", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, traceIDModel("  abc123  "), 0, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/api/v2/traces/%20%20abc123%20%20", req.URL.String())
+	})
+
+	t.Run("createRequest escapes an embedded '/' instead of letting it become a path separator", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, traceIDModel("abc123/../../secret"), 0, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123%2F..%2F..%2Fsecret", req.URL.String())
+	})
+
+	t.Run("createRequest path-traversal attempt cannot escape the api/v2/traces prefix", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, traceIDModel("../../../etc/passwd"), 0, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/api/v2/traces/..%2F..%2F..%2Fetc%2Fpasswd", req.URL.String())
+	})
+
+	t.Run("createRequest escapes a bare '..' so it can't resolve as a parent-directory dot-segment", func(t *testing.T) {
+		// url.PathEscape never touches "." -- a lone ".." (no "/" for the earlier escaping to
+		// catch) would otherwise reach the wire as a literal, unescaped RFC 3986 dot-segment.
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, traceIDModel(".."), 0, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/api/v2/traces/%2E%2E", req.URL.String())
+	})
+
+	t.Run("createRequest escapes a bare '.' so it can't resolve as a current-directory dot-segment", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, traceIDModel("."), 0, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/api/v2/traces/%2E", req.URL.String())
+	})
+
+	t.Run("createRequest escapes CRLF so it cannot inject a header or split the request", func(t *testing.T) {
+		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
+		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, traceIDModel("abc123\r\nX-Injected: yes"), 0, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "http://tempo/api/v2/traces/abc123%0D%0AX-Injected:%20yes", req.URL.String())
+	})
+
 	t.Run("createRequest preserves existing query params in the configured URL", func(t *testing.T) {
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
 		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo/routing?my_arg=1"}, TraceRequestApiVersionV2, traceIDModel("abc123"), 1, 2)
