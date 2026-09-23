@@ -219,6 +219,36 @@ describe('TraceIdOptions', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('marks Keep Hierarchy, Match Depth, and Ancestor Depth as ignored in the collapsed summary when there is no valid filter', () => {
+    const onChange = jest.fn();
+    render(
+      <TraceIdOptions query={baseQuery({ keepHierarchy: true, matchDepth: 2, ancestorDepth: 3 })} onChange={onChange} />
+    );
+
+    expect(screen.getByText('Keep Hierarchy: Yes (ignored)')).toBeInTheDocument();
+    expect(screen.getByText('Match Depth: 2 (ignored)')).toBeInTheDocument();
+    expect(screen.getByText('Ancestor Depth: 3 (ignored)')).toBeInTheDocument();
+  });
+
+  it('does not mark Keep Hierarchy, Match Depth, or Ancestor Depth as ignored once a valid filter is set', () => {
+    const onChange = jest.fn();
+    render(
+      <TraceIdOptions
+        query={baseQuery({
+          filterQuery: '{ status = error }',
+          keepHierarchy: true,
+          matchDepth: 2,
+          ancestorDepth: 3,
+        })}
+        onChange={onChange}
+      />
+    );
+
+    expect(screen.getByText('Keep Hierarchy: Yes')).toBeInTheDocument();
+    expect(screen.getByText('Match Depth: 2')).toBeInTheDocument();
+    expect(screen.getByText('Ancestor Depth: 3')).toBeInTheDocument();
+  });
+
   it('reveals fields from both the Span Pruning Options and Filter Options groups once expanded', async () => {
     const onChange = jest.fn();
     render(<TraceIdOptions query={baseQuery()} onChange={onChange} />);

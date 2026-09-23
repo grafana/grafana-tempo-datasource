@@ -106,9 +106,9 @@ export const TraceIdOptions = React.memo<Props>(({ onChange, query }) => {
 
   const collapsedFilterOptions = [
     `Filter: ${query.filterQuery || 'none'}`,
-    `Keep Hierarchy: ${query.keepHierarchy ? 'Yes' : 'No'}`,
-    `Match Depth: ${query.matchDepth ?? 0}`,
-    `Ancestor Depth: ${query.ancestorDepth ?? -1}`,
+    `Keep Hierarchy: ${query.keepHierarchy ? 'Yes' : 'No'}${hasValidFilter ? '' : ' (ignored)'}`,
+    `Match Depth: ${query.matchDepth ?? 0}${hasValidFilter ? '' : ' (ignored)'}`,
+    `Ancestor Depth: ${query.ancestorDepth ?? -1}${hasValidFilter && query.keepHierarchy ? '' : ' (ignored)'}`,
   ];
 
   return (
@@ -138,6 +138,7 @@ export const TraceIdOptions = React.memo<Props>(({ onChange, query }) => {
               minWidth={40}
               placeholder="db.sql.table, http.method"
               type="string"
+              spellCheck={false}
               defaultValue={query.spanPruningGroupBy}
               onCommitChange={onSpanPruningGroupByChange}
               value={query.spanPruningGroupBy}
@@ -190,6 +191,7 @@ export const TraceIdOptions = React.memo<Props>(({ onChange, query }) => {
               minWidth={60}
               placeholder='{ resource.service.name = "checkout" }'
               type="string"
+              spellCheck={false}
               invalid={!!filterError}
               onFocus={() => setIsFilterFocused(true)}
               onBlur={() => setIsFilterFocused(false)}
