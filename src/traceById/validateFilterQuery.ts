@@ -18,10 +18,8 @@ import { getErrorNodes } from '../traceql/highlighting';
 
 const ALLOWED_ATTRIBUTE_SCOPES = new Set<number>([Resource, Span, Event, Link, Instrumentation]);
 
-// Mirrors matchSpansSupportedIntrinsics in grafana/tempo's pkg/traceql/spanset_filter_match.go,
-// including every bare/scoped alias enum_attributes.go's intrinsicFromString accepts for each one
-// (e.g. "duration" and "span:duration" both resolve to the same intrinsic there). "parent:id" isn't
-// a real token in either mapping -- the actual field is "span:parentID".
+// Mirrors matchSpansSupportedIntrinsics in grafana/tempo's spanset_filter_match.go, including
+// every bare/scoped alias (e.g. "duration" and "span:duration" resolve to the same intrinsic).
 const ALLOWED_INTRINSICS = new Set<string>([
   'duration',
   'span:duration',

@@ -26,7 +26,7 @@ export function TraceIdInput({ query, onChange, onRunQuery }: Props) {
   return (
     <EditorField
       label="Trace ID"
-      tooltip="The trace ID to look up. Tempo validates the exact format server-side."
+      tooltip="The trace ID to look up."
       invalid={!isFocused && !!traceIdError}
       error={!isFocused ? traceIdError : undefined}
     >
