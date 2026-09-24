@@ -14,15 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// traceIDModel builds a *dataquery.TempoQuery whose Query (trace ID) field
-// points at a copy of id, matching the &dataquery.TempoQuery{Query: &x}
-// pattern used throughout this package's tests.
+// traceIDModel builds a *dataquery.TempoQuery with Query set to id.
 func traceIDModel(id string) *dataquery.TempoQuery {
 	return &dataquery.TempoQuery{Query: &id}
 }
 
-// newV2Params lists every Tempo HTTP query param introduced for the trace-id-tab
-// span pruning / filter options, all gated on TraceRequestApiVersionV2.
+// newV2Params lists the new v2-only span-pruning/filter query params.
 var newV2Params = []string{
 	"span_pruning",
 	"span_pruning_group_by",
@@ -159,10 +156,7 @@ func TestTempo(t *testing.T) {
 	})
 
 	t.Run("createRequest forwards a trace ID with trailing content as one escaped path segment", func(t *testing.T) {
-		// Grafana no longer parses or validates this field's content beyond building a safe URL --
-		// Tempo is the sole authority on what's valid, so it can accept new syntax here (e.g. hints)
-		// without any change on this side. Tempo will reject this particular value itself, since
-		// "abc123 with(hint=true)" isn't a valid trace ID, but that's Tempo's call to make.
+		// Tempo is the sole validator now; this value happens to be invalid, but that's Tempo's call.
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
 		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, traceIDModel("abc123 with(hint=true)"), 0, 0)
 		require.NoError(t, err)
@@ -191,8 +185,7 @@ func TestTempo(t *testing.T) {
 	})
 
 	t.Run("createRequest escapes a bare '..' so it can't resolve as a parent-directory dot-segment", func(t *testing.T) {
-		// url.PathEscape never touches "." -- a lone ".." (no "/" for the earlier escaping to
-		// catch) would otherwise reach the wire as a literal, unescaped RFC 3986 dot-segment.
+		// A bare ".." has no "/" for the slash-escaping to catch -- needs its own guard.
 		service := &DataSource{logger: backend.NewLoggerWith("logger", "tempo-test")}
 		req, err := service.createRequest(context.Background(), &DatasourceInfo{URL: "http://tempo"}, TraceRequestApiVersionV2, traceIDModel(".."), 0, 0)
 		require.NoError(t, err)

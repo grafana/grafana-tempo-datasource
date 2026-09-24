@@ -62,21 +62,21 @@ type TempoQuery struct {
 	Datasource any `json:"datasource,omitempty"`
 	// For metric queries, whether to run instant or range queries
 	MetricsQueryType *MetricsQueryType `json:"metricsQueryType,omitempty"`
-	// Enables span pruning for trace by ID queries. Maps to the `span_pruning` Tempo HTTP param.
+	// Enables span pruning for trace-by-ID queries (`span_pruning`).
 	SpanPruning *bool `json:"spanPruning,omitempty"`
-	// Comma-separated attribute names to group span pruning by. Maps to the `span_pruning_group_by` Tempo HTTP param.
+	// Comma-separated attributes to group span pruning by (`span_pruning_group_by`).
 	SpanPruningGroupBy *string `json:"spanPruningGroupBy,omitempty"`
-	// The minimum number of spans to keep per group when span pruning. Maps to the `span_pruning_min_spans` Tempo HTTP param.
+	// Minimum spans per group before pruning applies (`span_pruning_min_spans`).
 	SpanPruningMinSpans *int64 `json:"spanPruningMinSpans,omitempty"`
-	// The maximum parent depth to keep when span pruning. Maps to the `span_pruning_max_parent_depth` Tempo HTTP param.
+	// Maximum parent depth to prune (`span_pruning_max_parent_depth`).
 	SpanPruningMaxParentDepth *int64 `json:"spanPruningMaxParentDepth,omitempty"`
-	// A TraceQL-like spanset filter over spans within the trace. Maps to the `q` Tempo HTTP param.
+	// TraceQL spanset filter over spans in the trace (`q`).
 	FilterQuery *string `json:"filterQuery,omitempty"`
-	// Whether to keep the ancestor hierarchy of matched spans. Maps to the `keep_hierarchy` Tempo HTTP param.
+	// Keep ancestor hierarchy of matched spans (`keep_hierarchy`).
 	KeepHierarchy *bool `json:"keepHierarchy,omitempty"`
-	// The depth of descendants to keep around matched spans. Maps to the `match_depth` Tempo HTTP param.
+	// Descendant depth to keep around matched spans (`match_depth`).
 	MatchDepth *int64 `json:"matchDepth,omitempty"`
-	// The depth of ancestors to keep around matched spans; only sent when KeepHierarchy is true. Maps to the `ancestor_depth` Tempo HTTP param.
+	// Ancestor depth to keep; only sent when KeepHierarchy is true (`ancestor_depth`).
 	AncestorDepth *int64 `json:"ancestorDepth,omitempty"`
 }
 

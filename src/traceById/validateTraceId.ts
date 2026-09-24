@@ -1,6 +1,4 @@
-// Only the first whitespace-delimited token needs to look like a trace ID (letters and digits
-// only) -- anything after a space is left for the backend to validate, since Tempo's own hex-only
-// check (and whatever else is typed after it) is already enforced server-side.
+// Only the first token needs to look alphanumeric; anything after a space is Tempo's to validate.
 const TRACE_ID_PATTERN = /^[A-Za-z0-9]+(\s.*)?$/;
 
 export function validateTraceId(query: string): string | undefined {

@@ -136,8 +136,7 @@ describe('Tempo data source', () => {
   describe('Trace ID tab', () => {
     const templateSrv: TemplateSrv = { replace: (s: string) => s } as unknown as TemplateSrv;
 
-    // Restore via afterEach (not a manual mockRestore() at the end of the test body) so a failed
-    // assertion above it can't leave handleTraceIdQuery mocked for every later test in this file.
+    // afterEach, not a manual mockRestore(), so a failed assertion can't leave this mocked for later tests.
     afterEach(() => jest.restoreAllMocks());
 
     it('dispatches to handleTraceIdQuery with the traceId targets and query value', async () => {
@@ -153,8 +152,7 @@ describe('Tempo data source', () => {
 
       await lastValueFrom(ds.query(request));
 
-      // datasource.ts defaults spanPruning to true for this tab before dispatching, so the target
-      // handed to handleTraceIdQuery always carries it explicitly.
+      // spanPruning is defaulted to true before dispatch.
       expect(handleTraceIdQuery).toHaveBeenCalledWith(request, [{ ...target, spanPruning: true }], 'abc123');
     });
 
