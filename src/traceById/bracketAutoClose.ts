@@ -12,10 +12,8 @@ export interface BracketAutoCloseEdit {
   caret: number;
 }
 
-// Given a plain text input's current value and a collapsed caret position, decides what a
-// bracket/quote keypress should do: step over an already-present closing character instead of
-// duplicating it, or insert a matching pair with the caret left in between. Returns undefined for
-// any key this behavior doesn't apply to, so the caller lets the keypress through normally.
+// Steps over an existing closing char instead of duplicating it, or inserts a matching pair with
+// the caret in between. Returns undefined if the key isn't one of these bracket/quote chars.
 export function computeBracketAutoClose(value: string, caret: number, key: string): BracketAutoCloseEdit | undefined {
   if (CLOSING_CHARS.has(key) && value[caret] === key) {
     return { value, caret: caret + 1 };

@@ -258,26 +258,20 @@ func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo,
 		traceUrl = baseUrl.JoinPath("api", "v2", "traces")
 	}
 
-	// Forward whatever the caller typed as a single opaque path segment and let Tempo be the
-	// sole judge of what's valid -- if Tempo starts accepting hints appended after the trace ID,
-	// this needs no change. traceID is appended by hand, not via JoinPath (which would clean "/"
-	// and ".." out of it via path.Join), so an embedded "/" can't be used to escape this URL's
-	// "api/(v2/)traces" prefix; Path and RawPath are set explicitly in lockstep so the escaping
-	// isn't computed a second time by url.URL.String().
+	// Forwarded verbatim as one opaque path segment -- Tempo validates it, not us, so new
+	// trace-ID syntax there needs no change here. Escaped by hand (not via JoinPath, which
+	// would clean "/" and ".." via path.Join) so an embedded "/" can't escape this URL's prefix.
 	prefixEscaped := traceUrl.EscapedPath()
 	escapedTraceID := url.PathEscape(traceID)
-	// url.PathEscape never touches ".", so a traceID of exactly "." or ".." would otherwise
-	// reach the wire as a literal dot-segment -- RFC 3986 path resolution (and Tempo's router)
-	// treats those as "this directory"/"parent directory", not opaque data, which is exactly
-	// the kind of prefix-escaping the comment above promises. Break that meaning explicitly.
+	// PathEscape doesn't touch ".", so a bare "." or ".." would reach the wire as a real
+	// RFC 3986 dot-segment instead of opaque data.
 	if escapedTraceID == "." || escapedTraceID == ".." {
 		escapedTraceID = strings.ReplaceAll(escapedTraceID, ".", "%2E")
 	}
 	traceUrl.Path += "/" + traceID
 	traceUrl.RawPath = prefixEscaped + "/" + escapedTraceID
 
-	// Using url.Values keeps any query parameters already present in the configured
-	// data source URL instead of clobbering them with a second "?".
+	// Keeps any query params already on the configured URL instead of clobbering them.
 	q := traceUrl.Query()
 
 	if start != 0 && end != 0 {
@@ -285,7 +279,7 @@ func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo,
 		q.Set("end", strconv.FormatInt(end, 10))
 	}
 
-	// Gated on v2 so a v1 fallback request (older Tempo, no support for these params) never carries them.
+	// v1 fallback (older Tempo) never gets these params.
 	if apiVersion == TraceRequestApiVersionV2 {
 		if model.SpanPruning != nil {
 			q.Set("span_pruning", strconv.FormatBool(*model.SpanPruning))
@@ -308,7 +302,7 @@ func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo,
 		if model.MatchDepth != nil {
 			q.Set("match_depth", strconv.FormatInt(*model.MatchDepth, 10))
 		}
-		// Tempo only reads ancestor_depth when keep_hierarchy=true; sending it otherwise is a no-op that misleads callers.
+		// Tempo ignores ancestor_depth unless keep_hierarchy=true.
 		if model.AncestorDepth != nil && model.KeepHierarchy != nil && *model.KeepHierarchy {
 			q.Set("ancestor_depth", strconv.FormatInt(*model.AncestorDepth, 10))
 		}

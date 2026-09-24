@@ -427,11 +427,8 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     // Trace ID (dedicated tab)
     if (targets.traceId?.length) {
       try {
-        // span_pruning always defaults to true for this tab, rather than being omitted and left
-        // to Tempo's own server-side default, so the tab's behavior doesn't silently drift with
-        // per-tenant server config. Only applied here, not in handleTraceIdQuery, since that's
-        // shared with the TraceQL tab's implicit hex-string trace-ID lookup, which must not gain
-        // a param it never sent before.
+        // Default on here (not in the shared handleTraceIdQuery) so the TraceQL tab's hex-detect
+        // path doesn't gain a param it never sent before.
         const traceIdTargets = targets.traceId.map((t) => ({ ...t, spanPruning: t.spanPruning ?? true }));
         const appliedQuery = this.applyVariables(traceIdTargets[0], options.scopedVars);
         const queryValue = appliedQuery?.query || '';

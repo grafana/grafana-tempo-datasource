@@ -22,8 +22,7 @@ describe('TraceIdOptions', () => {
     return inputs[inputs.length - 2];
   }
 
-  // Both groups render an On/Off RadioButtonGroup with identical option labels (Span Pruning's
-  // On/Off, and Filter's Keep Hierarchy), so disambiguate by DOM order: Keep Hierarchy's is second.
+  // Both groups have an On/Off control with the same labels; Keep Hierarchy's is second in the DOM.
   function getKeepHierarchyButton(label: 'On' | 'Off') {
     return screen.getAllByRole('radio', { name: label })[1];
   }
@@ -158,12 +157,8 @@ describe('TraceIdOptions', () => {
 
     const filterInput = screen.getByPlaceholderText('{ resource.service.name = "checkout" }') as HTMLInputElement;
     fireEvent.focus(filterInput);
-    // fireEvent, not userEvent.type: userEvent keeps its own internal cursor model for simulated
-    // typing and resets the real DOM selection to match it once our keydown handler returns, which
-    // clobbers the setSelectionRange call this feature makes. That's an artifact of userEvent's
-    // bookkeeping, not something a real browser does, so it's not appropriate for asserting on
-    // caret position specifically -- confirmed by logging the DOM selection immediately after our
-    // handler runs (correctly 1) versus after userEvent's own post-processing (reset to 2).
+    // fireEvent, not userEvent.type: userEvent resets the DOM selection after each keystroke to
+    // its own cursor model, clobbering our setSelectionRange -- a test artifact, not real browser behavior.
     fireEvent.keyDown(filterInput, { key: '{' });
 
     expect(filterInput).toHaveValue('{}');

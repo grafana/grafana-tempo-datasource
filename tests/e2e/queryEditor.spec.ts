@@ -138,10 +138,7 @@ test.describe('Query editor', () => {
       const queryRow = getQueryEditorRow(page, 'A');
       await switchQueryType(page, 'Trace ID');
       await expect(queryRow.getByPlaceholder('Enter a trace ID (run with Enter or Shift+Enter)')).toBeVisible();
-      // Both groups render collapsed by default; the collapsed-summary text is
-      // always present regardless of open state (QueryOptionGroup's internal
-      // toggle never syncs with the isOpen prop), so this only proves the
-      // groups mounted, not that expand/collapse works.
+      // Only proves the groups mounted -- QueryOptionGroup's summary shows regardless of open state.
       await expect(queryRow.getByRole('button', { name: /Span Pruning Options/ })).toBeVisible();
       await expect(queryRow.getByRole('button', { name: /Filter Options/ })).toBeVisible();
     });
@@ -149,9 +146,7 @@ test.describe('Query editor', () => {
     test('expanding Span Pruning Options reveals its fields', async ({ page }) => {
       const queryRow = getQueryEditorRow(page, 'A');
       await switchQueryType(page, 'Trace ID');
-      // Label/input association is broken for EditorField + AutoSizeInput (no
-      // htmlFor wired through), so select the field by its exact label text
-      // rather than by accessible role name.
+      // No htmlFor wired through EditorField+AutoSizeInput, so select by label text, not role.
       const minSpansLabel = queryRow.getByText('Min Spans', { exact: true });
       await expect(minSpansLabel).toHaveCount(0);
       await queryRow.getByRole('button', { name: /Span Pruning Options/ }).click();

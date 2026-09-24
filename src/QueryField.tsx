@@ -189,9 +189,7 @@ class TempoQueryFieldComponent extends PureComponent<Props, State> {
                     });
 
                     this.onClearResults();
-                    // A TraceQL expression typed on the TraceQL tab isn't a trace ID, so don't
-                    // carry it into the Trace ID tab's input verbatim -- only a query that already
-                    // looks like a bare hex trace ID (or is empty) survives the switch.
+                    // Only carry the query into the Trace ID tab if it already looks like a trace ID.
                     const carriesOverQuery = v !== 'traceId' || datasource.isTraceIdQuery(query.query ?? '');
                     onChange({
                       ...query,
