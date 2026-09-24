@@ -152,8 +152,34 @@ describe('Tempo data source', () => {
 
       await lastValueFrom(ds.query(request));
 
-      // spanPruning is defaulted to true before dispatch.
-      expect(handleTraceIdQuery).toHaveBeenCalledWith(request, [{ ...target, spanPruning: true }], 'abc123');
+      // spanPruning is defaulted to true before dispatch; applyVariables also sets serviceMapQuery
+      // unconditionally (harmless here, shared with every other query type).
+      expect(handleTraceIdQuery).toHaveBeenCalledWith(
+        request,
+        [{ ...target, spanPruning: true, serviceMapQuery: '' }],
+        'abc123'
+      );
+    });
+
+    it('expands a templated trace ID before dispatching, not just for the telemetry value', async () => {
+      const expandingTemplateSrv: TemplateSrv = {
+        replace: (s: string) => (s === '$traceId' ? 'abc123' : s),
+      } as unknown as TemplateSrv;
+      const ds = new TempoDatasource(defaultSettings, expandingTemplateSrv);
+      const handleTraceIdQuery = jest
+        .spyOn(TempoDatasource.prototype, 'handleTraceIdQuery')
+        .mockReturnValue(of({ data: [] }));
+
+      const target: Partial<TempoQuery> = { refId: 'refid1', queryType: 'traceId', query: '$traceId' };
+      const request = {
+        targets: [target as TempoQuery],
+      } as DataQueryRequest<TempoQuery>;
+
+      await lastValueFrom(ds.query(request));
+
+      const [, dispatchedTargets, queryValue] = handleTraceIdQuery.mock.calls[0];
+      expect(queryValue).toBe('abc123');
+      expect((dispatchedTargets as TempoQuery[])[0].query).toBe('abc123');
     });
 
     it('returns empty response when the traceId tab query is empty', async () => {

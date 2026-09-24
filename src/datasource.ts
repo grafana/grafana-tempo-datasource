@@ -428,10 +428,12 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     if (targets.traceId?.length) {
       try {
         // Default on here (not in the shared handleTraceIdQuery) so the TraceQL tab's hex-detect
-        // path doesn't gain a param it never sent before.
-        const traceIdTargets = targets.traceId.map((t) => ({ ...t, spanPruning: t.spanPruning ?? true }));
-        const appliedQuery = this.applyVariables(traceIdTargets[0], options.scopedVars);
-        const queryValue = appliedQuery?.query || '';
+        // path doesn't gain a param it never sent before. applyVariables per-target (not just for
+        // the telemetry value) so a templated trace ID is expanded before dispatch, not sent literally.
+        const traceIdTargets = targets.traceId.map((t) =>
+          this.applyVariables({ ...t, spanPruning: t.spanPruning ?? true }, options.scopedVars)
+        );
+        const queryValue = traceIdTargets[0]?.query || '';
 
         reportInteraction('grafana_traces_traceId_tab_queried', {
           datasourceType: 'tempo',
