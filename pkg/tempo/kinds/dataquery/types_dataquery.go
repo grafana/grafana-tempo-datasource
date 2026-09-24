@@ -6,7 +6,6 @@
 //
 // Run 'make gen-cue' from repository root to regenerate.
 
-
 package dataquery
 
 import (
