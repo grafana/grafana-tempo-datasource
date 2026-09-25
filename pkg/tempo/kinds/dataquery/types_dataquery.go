@@ -6,7 +6,6 @@
 //
 // Run 'make gen-cue' from repository root to regenerate.
 
-
 package dataquery
 
 import (
@@ -62,6 +61,22 @@ type TempoQuery struct {
 	Datasource any `json:"datasource,omitempty"`
 	// For metric queries, whether to run instant or range queries
 	MetricsQueryType *MetricsQueryType `json:"metricsQueryType,omitempty"`
+	// Enables span pruning for trace-by-ID queries (`span_pruning`).
+	SpanPruning *bool `json:"spanPruning,omitempty"`
+	// Comma-separated attributes to group span pruning by (`span_pruning_group_by`).
+	SpanPruningGroupBy *string `json:"spanPruningGroupBy,omitempty"`
+	// Minimum spans per group before pruning applies (`span_pruning_min_spans`).
+	SpanPruningMinSpans *int64 `json:"spanPruningMinSpans,omitempty"`
+	// Maximum parent depth to prune (`span_pruning_max_parent_depth`).
+	SpanPruningMaxParentDepth *int64 `json:"spanPruningMaxParentDepth,omitempty"`
+	// TraceQL spanset filter over spans in the trace (`q`).
+	FilterQuery *string `json:"filterQuery,omitempty"`
+	// Keep ancestor hierarchy of matched spans (`keep_hierarchy`).
+	KeepHierarchy *bool `json:"keepHierarchy,omitempty"`
+	// Descendant depth to keep around matched spans (`match_depth`).
+	MatchDepth *int64 `json:"matchDepth,omitempty"`
+	// Ancestor depth to keep; only sent when KeepHierarchy is true (`ancestor_depth`).
+	AncestorDepth *int64 `json:"ancestorDepth,omitempty"`
 }
 
 // NewTempoQuery creates a new TempoQuery object.

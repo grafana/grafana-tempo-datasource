@@ -52,7 +52,7 @@ function exploreQueryParams(
 // Switches the Tempo query type by clicking the radio button. Never relies on
 // the URL to set the query type — the URL is read on first load only and the
 // editor re-renders when a different radio is checked.
-async function switchQueryType(page: Page, name: 'Search' | 'TraceQL' | 'Service Graph'): Promise<void> {
+async function switchQueryType(page: Page, name: 'Search' | 'TraceQL' | 'Service Graph' | 'Trace ID'): Promise<void> {
   const radio = getQueryEditorRow(page, 'A').getByRole('radio', { name, exact: true });
   await radio.click();
   await expect(radio).toBeChecked();
@@ -130,6 +130,36 @@ test.describe('Query editor', () => {
       // the summary string is more robust than asserting on the labelled
       // inputs that only render when the panel is expanded.
       await expect(queryRow.getByRole('button', { name: /Search Options.*Limit:.*Table Format:/ })).toBeVisible();
+    });
+  });
+
+  test.describe('Trace ID tab', () => {
+    test('smoke: shows the trace ID input and both option groups', async ({ page }) => {
+      const queryRow = getQueryEditorRow(page, 'A');
+      await switchQueryType(page, 'Trace ID');
+      await expect(queryRow.getByPlaceholder('Enter a trace ID (run with Enter or Shift+Enter)')).toBeVisible();
+      // Only proves the groups mounted -- QueryOptionGroup's summary shows regardless of open state.
+      await expect(queryRow.getByRole('button', { name: /Span Pruning Options/ })).toBeVisible();
+      await expect(queryRow.getByRole('button', { name: /Filter Options/ })).toBeVisible();
+    });
+
+    test('expanding Span Pruning Options reveals its fields', async ({ page }) => {
+      const queryRow = getQueryEditorRow(page, 'A');
+      await switchQueryType(page, 'Trace ID');
+      // No htmlFor wired through EditorField+AutoSizeInput, so select by label text, not role.
+      const minSpansLabel = queryRow.getByText('Min Spans', { exact: true });
+      await expect(minSpansLabel).toHaveCount(0);
+      await queryRow.getByRole('button', { name: /Span Pruning Options/ }).click();
+      await expect(minSpansLabel).toBeVisible();
+    });
+
+    test('expanding Filter Options reveals its fields', async ({ page }) => {
+      const queryRow = getQueryEditorRow(page, 'A');
+      await switchQueryType(page, 'Trace ID');
+      const matchDepthLabel = queryRow.getByText('Match Depth', { exact: true });
+      await expect(matchDepthLabel).toHaveCount(0);
+      await queryRow.getByRole('button', { name: /Filter Options/ }).click();
+      await expect(matchDepthLabel).toBeVisible();
     });
   });
 });
