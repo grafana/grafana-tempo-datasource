@@ -1,7 +1,8 @@
 import { type SpanStatus } from '@opentelemetry/api';
-import { type collectorTypes } from '@opentelemetry/exporter-collector';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { isEqual } from 'lodash';
+
+import type * as collectorTypes from './otlpTypes';
 
 import {
   createDataFrame,
@@ -29,7 +30,7 @@ import { getDataSourceSrv } from '@grafana/runtime';
 import { SearchTableType } from './dataquery';
 import { type Span, type SpanAttributes, type Spanset, type TempoJsonData, type TraceSearchMetadata } from './types';
 
-function getAttributeValue(value: collectorTypes.opentelemetryProto.common.v1.AnyValue): any {
+function getAttributeValue(value: collectorTypes.AnyValue): any {
   if (value.stringValue) {
     return value.stringValue;
   }
@@ -57,7 +58,7 @@ function getAttributeValue(value: collectorTypes.opentelemetryProto.common.v1.An
   return '';
 }
 
-function resourceToProcess(resource: collectorTypes.opentelemetryProto.resource.v1.Resource | undefined) {
+function resourceToProcess(resource: collectorTypes.Resource | undefined) {
   const serviceTags: TraceKeyValuePair[] = [];
   let serviceName = 'OTLPResourceNoServiceName';
   let serviceNamespace: string | undefined;
@@ -79,7 +80,7 @@ function resourceToProcess(resource: collectorTypes.opentelemetryProto.resource.
   return { serviceName, serviceNamespace, serviceTags };
 }
 
-function getSpanTags(span: collectorTypes.opentelemetryProto.trace.v1.Span): TraceKeyValuePair[] {
+function getSpanTags(span: collectorTypes.Span): TraceKeyValuePair[] {
   const spanTags: TraceKeyValuePair[] = [];
 
   if (span.attributes) {
@@ -91,7 +92,7 @@ function getSpanTags(span: collectorTypes.opentelemetryProto.trace.v1.Span): Tra
   return spanTags;
 }
 
-function getSpanKind(span: collectorTypes.opentelemetryProto.trace.v1.Span) {
+function getSpanKind(span: collectorTypes.Span) {
   let kind = undefined;
   if (span.kind) {
     const split = span.kind.toString().toLowerCase().split('_');
@@ -100,7 +101,7 @@ function getSpanKind(span: collectorTypes.opentelemetryProto.trace.v1.Span) {
   return kind;
 }
 
-function getReferences(span: collectorTypes.opentelemetryProto.trace.v1.Span) {
+function getReferences(span: collectorTypes.Span) {
   const references: TraceSpanReference[] = [];
   if (span.links) {
     for (const link of span.links) {
@@ -118,7 +119,7 @@ function getReferences(span: collectorTypes.opentelemetryProto.trace.v1.Span) {
   return references;
 }
 
-function getLogs(span: collectorTypes.opentelemetryProto.trace.v1.Span) {
+function getLogs(span: collectorTypes.Span) {
   const logs: TraceLog[] = [];
   if (span.events) {
     for (const event of span.events) {
@@ -136,7 +137,7 @@ function getLogs(span: collectorTypes.opentelemetryProto.trace.v1.Span) {
 }
 
 export function transformFromOTLP(
-  traceData: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
+  traceData: collectorTypes.ResourceSpans[],
   nodeGraph = false
 ): DataQueryResponse {
   const frame = new MutableDataFrame({
@@ -212,9 +213,9 @@ export function transformFromOTLP(
  * Transforms trace dataframes to the OpenTelemetry format
  */
 export function transformToOTLP(data: MutableDataFrame): {
-  batches: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[];
+  batches: collectorTypes.ResourceSpans[];
 } {
-  let result: { batches: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] } = {
+  let result: { batches: collectorTypes.ResourceSpans[] } = {
     batches: [],
   };
 
@@ -306,8 +307,8 @@ function getOTLPSpanKind(kind: string): string | undefined {
 /**
  * Converts key-value tags to OTLP attributes and removes tags added by Grafana
  */
-function tagsToAttributes(tags: TraceKeyValuePair[]): collectorTypes.opentelemetryProto.common.v1.KeyValue[] {
-  return tags.reduce<collectorTypes.opentelemetryProto.common.v1.KeyValue[]>(
+function tagsToAttributes(tags: TraceKeyValuePair[]): collectorTypes.KeyValue[] {
+  return tags.reduce<collectorTypes.KeyValue[]>(
     (attributes, tag) => [...attributes, { key: tag.key, value: toAttributeValue(tag) }],
     []
   );
@@ -316,7 +317,7 @@ function tagsToAttributes(tags: TraceKeyValuePair[]): collectorTypes.opentelemet
 /**
  * Returns the correct OTLP AnyValue based on the value of the tag value
  */
-function toAttributeValue(tag: TraceKeyValuePair): collectorTypes.opentelemetryProto.common.v1.AnyValue {
+function toAttributeValue(tag: TraceKeyValuePair): collectorTypes.AnyValue {
   if (typeof tag.value === 'string') {
     return { stringValue: tag.value };
   } else if (typeof tag.value === 'boolean') {
@@ -329,7 +330,7 @@ function toAttributeValue(tag: TraceKeyValuePair): collectorTypes.opentelemetryP
     }
   } else if (typeof tag.value === 'object') {
     if (Array.isArray(tag.value)) {
-      const values: collectorTypes.opentelemetryProto.common.v1.AnyValue[] = [];
+      const values: collectorTypes.AnyValue[] = [];
       for (const val of tag.value) {
         values.push(toAttributeValue(val));
       }
@@ -351,14 +352,14 @@ function getOTLPStatus(span: TraceSpanRow): SpanStatus | undefined {
   return status;
 }
 
-function getOTLPEvents(logs: TraceLog[]): collectorTypes.opentelemetryProto.trace.v1.Span.Event[] | undefined {
+function getOTLPEvents(logs: TraceLog[]): collectorTypes.SpanEvent[] | undefined {
   if (!logs || !logs.length) {
     return undefined;
   }
 
-  let events: collectorTypes.opentelemetryProto.trace.v1.Span.Event[] = [];
+  let events: collectorTypes.SpanEvent[] = [];
   for (const log of logs) {
-    let event: collectorTypes.opentelemetryProto.trace.v1.Span.Event = {
+    let event: collectorTypes.SpanEvent = {
       timeUnixNano: log.timestamp * 1000000,
       attributes: [],
       droppedAttributesCount: 0,
@@ -377,14 +378,14 @@ function getOTLPEvents(logs: TraceLog[]): collectorTypes.opentelemetryProto.trac
 
 function getOTLPReferences(
   references: TraceSpanReference[]
-): collectorTypes.opentelemetryProto.trace.v1.Span.Link[] | undefined {
+): collectorTypes.SpanLink[] | undefined {
   if (!references || !references.length) {
     return undefined;
   }
 
-  let links: collectorTypes.opentelemetryProto.trace.v1.Span.Link[] = [];
+  let links: collectorTypes.SpanLink[] = [];
   for (const ref of references) {
-    let link: collectorTypes.opentelemetryProto.trace.v1.Span.Link = {
+    let link: collectorTypes.SpanLink = {
       traceId: ref.traceID,
       spanId: ref.spanID,
       attributes: [],

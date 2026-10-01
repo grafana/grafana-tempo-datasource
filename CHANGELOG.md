@@ -1,5 +1,9 @@
 # Changelog
 
+## 13.2.3
+
+- Fix security vulnerabilities (CVE-2026-54285, CVE-2026-84445)
+
 ## 13.2.2
 
 - Fix security vulnerabilities (CVE-2026-73088, CVE-2026-73089, CVE-2026-75899, CVE-2026-75931, CVE-2026-75975, CVE-2026-76172, CVE-2026-84375)
