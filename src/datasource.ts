@@ -424,6 +424,32 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
       }
     }
 
+    // Trace ID (dedicated tab)
+    if (targets.traceId?.length) {
+      try {
+        // Default on here (not in the shared handleTraceIdQuery) so the TraceQL tab's hex-detect
+        // path doesn't gain a param it never sent before. applyVariables per-target (not just for
+        // the telemetry value) so a templated trace ID is expanded before dispatch, not sent literally.
+        const traceIdTargets = targets.traceId.map((t) =>
+          this.applyVariables({ ...t, spanPruning: t.spanPruning ?? true }, options.scopedVars)
+        );
+        const queryValue = traceIdTargets[0]?.query || '';
+
+        reportInteraction('grafana_traces_traceId_tab_queried', {
+          datasourceType: 'tempo',
+          app: options.app ?? '',
+          grafana_version: config.buildInfo.version,
+          hasQuery: queryValue !== '',
+          spanPruningEnabled: traceIdTargets[0].spanPruning,
+          keepHierarchyEnabled: !!traceIdTargets[0].keepHierarchy,
+        });
+
+        subQueries.push(this.handleTraceIdQuery(options, traceIdTargets, queryValue));
+      } catch (error) {
+        return of({ error: { message: error instanceof Error ? error.message : 'Unknown error occurred' }, data: [] });
+      }
+    }
+
     // Search
     if (targets.traceqlSearch?.length) {
       if (targets.traceqlSearch[0].groupBy) {
@@ -575,7 +601,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     query: string
   ): Observable<DataQueryResponse> {
     const validTargets = targets
-      .filter((t) => t.query)
+      .filter((t) => t.query?.trim())
       .map((t): TempoQuery => ({ ...t, query: t.query?.trim(), queryType: 'traceId' }));
     if (!validTargets.length) {
       return EMPTY;

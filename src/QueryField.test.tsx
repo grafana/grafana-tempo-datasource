@@ -27,6 +27,10 @@ jest.mock('./traceql/QueryEditor', () => ({
   QueryEditor: () => <div data-testid="traceql-editor" />,
 }));
 
+jest.mock('./traceById/QueryEditor', () => ({
+  QueryEditor: () => <div data-testid="traceid-editor" />,
+}));
+
 jest.mock('@grafana/runtime', () => ({
   ...jest.requireActual('@grafana/runtime'),
   reportInteraction: jest.fn(),
@@ -181,6 +185,87 @@ describe('QueryField', () => {
       newQueryType: 'serviceMap',
       previousQueryType: 'traceql',
     });
+  });
+
+  it('renders the Trace ID radio option and switches to the Trace ID editor when selected', async () => {
+    const user = userEvent.setup();
+    const onChange = jest.fn();
+    const onRunQuery = jest.fn();
+
+    renderQueryField({
+      onChange,
+      onRunQuery,
+      query: { refId: 'A', queryType: 'traceql' } as TempoQuery,
+    });
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({ refId: 'A', queryType: 'traceql', serviceMapUseNativeHistograms: false })
+    );
+    onChange.mockClear();
+
+    expect(screen.getByRole('button', { name: 'Trace ID' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Trace ID' }));
+
+    expect(onChange).toHaveBeenNthCalledWith(1, { refId: 'A', queryType: 'clear' });
+    expect(onChange).toHaveBeenNthCalledWith(2, { refId: 'A', queryType: 'traceId' });
+    expect(mockedReportInteraction).toHaveBeenCalledWith('grafana_traces_query_type_changed', {
+      datasourceType: 'tempo',
+      app: CoreApp.Explore,
+      grafana_version: '11.0.0',
+      newQueryType: 'traceId',
+      previousQueryType: 'traceql',
+    });
+  });
+
+  it('clears a non-hex TraceQL query when switching to the Trace ID tab', async () => {
+    const user = userEvent.setup();
+    const onChange = jest.fn();
+
+    renderQueryField({
+      onChange,
+      query: { refId: 'A', queryType: 'traceql', query: '{ status = error }' } as TempoQuery,
+    });
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    onChange.mockClear();
+
+    await user.click(screen.getByRole('button', { name: 'Trace ID' }));
+
+    expect(onChange).toHaveBeenNthCalledWith(2, {
+      refId: 'A',
+      queryType: 'traceId',
+      query: '',
+    });
+  });
+
+  it('preserves a hex-looking query when switching to the Trace ID tab', async () => {
+    const user = userEvent.setup();
+    const onChange = jest.fn();
+
+    renderQueryField({
+      onChange,
+      query: { refId: 'A', queryType: 'traceql', query: 'abc123' } as TempoQuery,
+    });
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    onChange.mockClear();
+
+    await user.click(screen.getByRole('button', { name: 'Trace ID' }));
+
+    expect(onChange).toHaveBeenNthCalledWith(2, {
+      refId: 'A',
+      queryType: 'traceId',
+      query: 'abc123',
+    });
+  });
+
+  it('mounts the Trace ID editor when queryType is traceId', () => {
+    renderQueryField({
+      query: { refId: 'A', queryType: 'traceId' } as TempoQuery,
+    });
+
+    expect(screen.getByTestId('traceid-editor')).toBeInTheDocument();
   });
 
   it('shows the assistant button only in supported apps', () => {

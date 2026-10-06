@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,8 +23,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
-
-var traceIDPattern = regexp.MustCompile(`^[0-9A-Fa-f]+$`)
 
 func (ds *DataSource) getTrace(ctx context.Context, pCtx backend.PluginContext, query backend.DataQuery) (*backend.DataResponse, error) {
 	ctxLogger := ds.logger.FromContext(ctx)
@@ -200,7 +197,7 @@ func describeErrorBody(resp *http.Response, body []byte) string {
 
 func (ds *DataSource) performTraceRequest(ctx context.Context, dsInfo *DatasourceInfo, apiVersion TraceRequestApiVersion, model *dataquery.TempoQuery, query backend.DataQuery, span trace.Span) (*http.Response, []byte, error) {
 	ctxLogger := ds.logger.FromContext(ctx)
-	request, err := ds.createRequest(ctx, dsInfo, apiVersion, *model.Query, query.TimeRange.From.Unix(), query.TimeRange.To.Unix())
+	request, err := ds.createRequest(ctx, dsInfo, apiVersion, model, query.TimeRange.From.Unix(), query.TimeRange.To.Unix())
 
 	if err != nil {
 		ctxLogger.Error("Failed to create request", "error", err, "function", logEntrypoint())
@@ -243,12 +240,10 @@ const (
 	TraceRequestApiVersionV2
 )
 
-func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo, apiVersion TraceRequestApiVersion, traceID string, start int64, end int64) (*http.Request, error) {
+func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo, apiVersion TraceRequestApiVersion, model *dataquery.TempoQuery, start int64, end int64) (*http.Request, error) {
 	ctxLogger := ds.logger.FromContext(ctx)
 
-	if !traceIDPattern.MatchString(traceID) {
-		return nil, backend.DownstreamErrorf("invalid trace id")
-	}
+	traceID := *model.Query
 
 	baseUrl, err := url.Parse(dsInfo.URL)
 	if err != nil {
@@ -258,20 +253,62 @@ func (ds *DataSource) createRequest(ctx context.Context, dsInfo *DatasourceInfo,
 
 	var traceUrl *url.URL
 	if apiVersion == TraceRequestApiVersionV1 {
-		traceUrl = baseUrl.JoinPath("api", "traces", traceID)
+		traceUrl = baseUrl.JoinPath("api", "traces")
 	} else {
-		traceUrl = baseUrl.JoinPath("api", "v2", "traces", traceID)
+		traceUrl = baseUrl.JoinPath("api", "v2", "traces")
 	}
 
-	// Only add the time range when both bounds are set. Using url.Values keeps any
-	// query parameters already present in the configured data source URL instead of
-	// clobbering them with a second "?".
+	// Forwarded verbatim as one opaque path segment -- Tempo validates it, not us, so new
+	// trace-ID syntax there needs no change here. Escaped by hand (not via JoinPath, which
+	// would clean "/" and ".." via path.Join) so an embedded "/" can't escape this URL's prefix.
+	prefixEscaped := traceUrl.EscapedPath()
+	escapedTraceID := url.PathEscape(traceID)
+	// PathEscape doesn't touch ".", so a bare "." or ".." would reach the wire as a real
+	// RFC 3986 dot-segment instead of opaque data.
+	if escapedTraceID == "." || escapedTraceID == ".." {
+		escapedTraceID = strings.ReplaceAll(escapedTraceID, ".", "%2E")
+	}
+	traceUrl.Path += "/" + traceID
+	traceUrl.RawPath = prefixEscaped + "/" + escapedTraceID
+
+	// Keeps any query params already on the configured URL instead of clobbering them.
+	q := traceUrl.Query()
+
 	if start != 0 && end != 0 {
-		q := traceUrl.Query()
 		q.Set("start", strconv.FormatInt(start, 10))
 		q.Set("end", strconv.FormatInt(end, 10))
-		traceUrl.RawQuery = q.Encode()
 	}
+
+	// v1 fallback (older Tempo) never gets these params.
+	if apiVersion == TraceRequestApiVersionV2 {
+		if model.SpanPruning != nil {
+			q.Set("span_pruning", strconv.FormatBool(*model.SpanPruning))
+		}
+		if model.SpanPruningGroupBy != nil && *model.SpanPruningGroupBy != "" {
+			q.Set("span_pruning_group_by", *model.SpanPruningGroupBy)
+		}
+		if model.SpanPruningMinSpans != nil {
+			q.Set("span_pruning_min_spans", strconv.FormatInt(*model.SpanPruningMinSpans, 10))
+		}
+		if model.SpanPruningMaxParentDepth != nil {
+			q.Set("span_pruning_max_parent_depth", strconv.FormatInt(*model.SpanPruningMaxParentDepth, 10))
+		}
+		if model.FilterQuery != nil && *model.FilterQuery != "" {
+			q.Set("q", *model.FilterQuery)
+		}
+		if model.KeepHierarchy != nil {
+			q.Set("keep_hierarchy", strconv.FormatBool(*model.KeepHierarchy))
+		}
+		if model.MatchDepth != nil {
+			q.Set("match_depth", strconv.FormatInt(*model.MatchDepth, 10))
+		}
+		// Tempo ignores ancestor_depth unless keep_hierarchy=true.
+		if model.AncestorDepth != nil && model.KeepHierarchy != nil && *model.KeepHierarchy {
+			q.Set("ancestor_depth", strconv.FormatInt(*model.AncestorDepth, 10))
+		}
+	}
+
+	traceUrl.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", traceUrl.String(), nil)
 	if err != nil {

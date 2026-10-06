@@ -20,6 +20,7 @@ import TraceQLSearch from './SearchTraceQLEditor/TraceQLSearch';
 import { ServiceGraphSection } from './ServiceGraphSection';
 import { type TempoQueryType } from './dataquery';
 import { type TempoDatasource } from './datasource';
+import { QueryEditor as TraceIdQueryEditor } from './traceById/QueryEditor';
 import { QueryEditor } from './traceql/QueryEditor';
 import { type TempoQuery } from './types';
 import { migrateFromSearchToTraceQLSearch } from './utils';
@@ -113,6 +114,7 @@ class TempoQueryFieldComponent extends PureComponent<Props, State> {
     let queryTypeOptions: Array<SelectableValue<TempoQueryType>> = [
       { value: 'traceqlSearch', label: 'Search' },
       { value: 'traceql', label: 'TraceQL' },
+      { value: 'traceId', label: 'Trace ID' },
       { value: 'serviceMap', label: 'Service Graph' },
     ];
 
@@ -187,9 +189,12 @@ class TempoQueryFieldComponent extends PureComponent<Props, State> {
                     });
 
                     this.onClearResults();
+                    // Only carry the query into the Trace ID tab if it already looks like a trace ID.
+                    const carriesOverQuery = v !== 'traceId' || datasource.isTraceIdQuery(query.query ?? '');
                     onChange({
                       ...query,
                       queryType: v,
+                      query: carriesOverQuery ? query.query : '',
                     });
                   }}
                   size="md"
@@ -230,6 +235,16 @@ class TempoQueryFieldComponent extends PureComponent<Props, State> {
             onChange={onChange}
             app={app}
             onClearResults={this.onClearResults}
+            range={this.props.range}
+          />
+        )}
+        {query.queryType === 'traceId' && (
+          <TraceIdQueryEditor
+            datasource={this.props.datasource}
+            query={query}
+            onRunQuery={this.props.onRunQuery}
+            onChange={onChange}
+            app={app}
             range={this.props.range}
           />
         )}
