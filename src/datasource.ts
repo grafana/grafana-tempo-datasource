@@ -41,6 +41,7 @@ import { type TempoVariableQuery, TempoVariableQueryType } from './VariableQuery
 import { type PrometheusDatasource, type PromQuery } from './_importedDependencies/datasources/prometheus/types';
 import { type TagLimitOptions } from './configuration/TagLimitSettings';
 import { SearchTableType, type TraceqlFilter, TraceqlSearchScope } from './dataquery';
+import { isMetricsStreamingDefaultEnabled } from './featureFlags';
 import {
   defaultTableFilter,
   durationMetric,
@@ -141,7 +142,13 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     this.search = instanceSettings.jsonData.search;
     this.nodeGraph = instanceSettings.jsonData.nodeGraph;
     this.traceQuery = instanceSettings.jsonData.traceQuery;
-    this.streamingEnabled = instanceSettings.jsonData.streamingEnabled;
+    // metrics falls back to the GOFF default only when this instance's
+    // jsonData has never set it explicitly - an explicit value (on or off)
+    // always wins. This is a default, not an AND gate: see featureFlags.ts.
+    this.streamingEnabled = {
+      ...instanceSettings.jsonData.streamingEnabled,
+      metrics: instanceSettings.jsonData.streamingEnabled?.metrics ?? isMetricsStreamingDefaultEnabled(),
+    };
     this.timeRangeForTags = parseTimeRangeForTags(instanceSettings.jsonData.timeRangeForTags);
     this.languageProvider = new TempoLanguageProvider(this);
 
