@@ -620,21 +620,28 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     );
   }
 
-  handleTraceQlQuery(options: DataQueryRequest<TempoQuery>, targets: { [type: string]: TempoQuery[] }) {
-    const startTime = performance.now();
-    const traceqlSearchTargets = targets.traceqlSearch || targets.traceql;
-    const appliedQuery = this.applyVariables(traceqlSearchTargets[0], options.scopedVars);
-    let queries: TempoQuery[];
-
-    if (targets.traceqlSearch) {
-      const queryFromFilters = this.languageProvider.generateQueryFromFilters({
+  /**
+   * Returns the TraceQL query to run for a single search target: its own query text with variables applied,
+   * or, for targets built in the search editor, the query generated from its own filters.
+   */
+  getSearchQueryValue(target: TempoQuery, options: DataQueryRequest<TempoQuery>): string {
+    const appliedQuery = this.applyVariables(target, options.scopedVars);
+    if (target.queryType === 'traceqlSearch') {
+      return this.languageProvider.generateQueryFromFilters({
         traceqlFilters: appliedQuery.filters,
         adhocFilters: options.filters,
       });
-      queries = traceqlSearchTargets.map((t) => ({ ...t, query: queryFromFilters }));
-    } else {
-      queries = traceqlSearchTargets.map((t) => ({ ...t, query: appliedQuery?.query }));
     }
+    return appliedQuery.query;
+  }
+
+  handleTraceQlQuery(options: DataQueryRequest<TempoQuery>, targets: { [type: string]: TempoQuery[] }) {
+    const startTime = performance.now();
+    const traceqlSearchTargets = targets.traceqlSearch || targets.traceql;
+    const queries: TempoQuery[] = traceqlSearchTargets.map((t) => ({
+      ...t,
+      query: this.getSearchQueryValue(t, options),
+    }));
 
     return super.query({ ...options, targets: queries }).pipe(
       map((response: DataQueryResponse) => {
@@ -748,15 +755,19 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     targets: TempoQuery[],
     query: string
   ): Observable<DataQueryResponse> {
-    if (query === '') {
+    // Each target runs its own query, not the one in `query` (that one is only used for reporting)
+    const validTargets = targets
+      .map((target) => ({ ...target, query: this.getSearchQueryValue(target, options) }))
+      .filter((target) => target.query !== '');
+    if (!validTargets.length) {
       return EMPTY;
     }
 
     const startTime = performance.now();
     return merge(
-      ...targets.map((target) =>
+      ...validTargets.map((target) =>
         doTempoSearchStreaming(
-          { ...target, query: query },
+          target,
           this, // the datasource
           options,
           this.instanceSettings
