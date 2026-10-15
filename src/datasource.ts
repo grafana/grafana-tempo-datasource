@@ -367,6 +367,20 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
       }
     }
 
+    // Trace ID: the query type the backend uses for a trace lookup. The TraceQL branch below
+    // already handles a bare trace ID; without this, a traceId target is dropped and the
+    // request completes with no data and no error.
+    if (targets.traceId?.length) {
+      const queryValue = this.applyVariables(targets.traceId[0], options.scopedVars)?.query || '';
+      reportInteraction('grafana_traces_traceID_queried', {
+        datasourceType: 'tempo',
+        app: options.app ?? '',
+        grafana_version: config.buildInfo.version,
+        hasQuery: queryValue !== '' ? true : false,
+      });
+      subQueries.push(this.handleTraceIdQuery(options, targets.traceId, queryValue));
+    }
+
     // TraceQL
     if (targets.traceql?.length) {
       try {
