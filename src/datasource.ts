@@ -597,6 +597,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     return {
       ...expandedQuery,
       query: this.templateSrv.replace(query.query ?? '', scopedVars, VariableFormatID.Pipe),
+      filterQuery: this.templateSrv.replace(query.filterQuery ?? '', scopedVars, VariableFormatID.Pipe),
       serviceMapQuery: Array.isArray(query.serviceMapQuery)
         ? query.serviceMapQuery.map((query) => this.templateSrv.replace(query, scopedVars))
         : this.templateSrv.replace(query.serviceMapQuery ?? '', scopedVars),
