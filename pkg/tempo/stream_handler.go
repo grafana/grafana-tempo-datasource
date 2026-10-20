@@ -46,13 +46,12 @@ func (ds *DataSource) RunStream(ctx context.Context, request *backend.RunStreamR
 		return backend.DownstreamErrorf("failed to get datasource information: %w", dsInfoErr)
 	}
 
-	// Get incoming and team http headers
+	// Get incoming and team HTTP headers
 	headers, err := stream_utils.GetHeadersFromIncomingContext(ctx, ds.logger)
 	if err != nil {
 		return err
 	}
 	request.Headers = headers
-
 
 	// Add headers to the outgoing context.
 	// This is mainly needed for the API server, as in that case the outgoing context is empty and
