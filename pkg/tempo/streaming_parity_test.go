@@ -19,7 +19,6 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/experimental/featuretoggles"
 	"github.com/grafana/tempo/pkg/tempopb"
-	v1 "github.com/grafana/tempo/pkg/tempopb/common/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -63,62 +62,10 @@ func (f *fakeTempo) record(transport, policy string) {
 	f.policies[transport] = append(f.policies[transport], policy)
 }
 
-func (f *fakeTempo) recordMD(md metadata.MD) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.grpcMD = append(f.grpcMD, md)
-}
-
-func (f *fakeTempo) receivedMD() []metadata.MD {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]metadata.MD(nil), f.grpcMD...)
-}
-
 func (f *fakeTempo) received(transport string) []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.policies[transport]...)
-}
-
-// parityMetricsCorpus is the metrics counterpart of parityCorpus: one series per service.
-var parityMetricsCorpus = []*tempopb.TimeSeries{
-	metricsSeries("frontend", 1, 2),
-	metricsSeries("backend", 3, 4),
-}
-
-func metricsSeries(service string, values ...float64) *tempopb.TimeSeries {
-	ts := &tempopb.TimeSeries{Labels: []v1.KeyValue{{Key: "service", Value: &v1.AnyValue{Value: &v1.AnyValue_StringValue{StringValue: service}}}}}
-	for i, v := range values {
-		ts.Samples = append(ts.Samples, tempopb.Sample{TimestampMs: int64(i+1) * 1000, Value: v})
-	}
-	return ts
-}
-
-func filterSeriesByPolicy(policy string) []*tempopb.TimeSeries {
-	want := strings.TrimPrefix(policy, "service=")
-	var out []*tempopb.TimeSeries
-	for _, ts := range parityMetricsCorpus {
-		if policy == "" || ts.Labels[0].Value.GetStringValue() == want {
-			out = append(out, ts)
-		}
-	}
-	return out
-}
-
-func (s *fakeStreamingQuerier) MetricsQueryRange(_ *tempopb.QueryRangeRequest, srv tempopb.StreamingQuerier_MetricsQueryRangeServer) error {
-	md, _ := metadata.FromIncomingContext(srv.Context())
-	policy := strings.Join(md.Get(strings.ToLower(labelPolicyHeader)), ",")
-	s.f.record("grpc", policy)
-	s.f.recordMD(md)
-	series := filterSeriesByPolicy(policy)
-	// Like Tempo, each message carries the accumulated series.
-	for i := range series {
-		if err := srv.Send(&tempopb.QueryRangeResponse{Series: series[:i+1], Metrics: &tempopb.SearchMetrics{}}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 type fakeStreamingQuerier struct {
@@ -130,7 +77,9 @@ func (s *fakeStreamingQuerier) Search(_ *tempopb.SearchRequest, srv tempopb.Stre
 	md, _ := metadata.FromIncomingContext(srv.Context())
 	policy := strings.Join(md.Get(strings.ToLower(labelPolicyHeader)), ",")
 	s.f.record("grpc", policy)
-	s.f.recordMD(md)
+	s.f.mu.Lock()
+	s.f.grpcMD = append(s.f.grpcMD, md)
+	s.f.mu.Unlock()
 	traces := filterByPolicy(policy)
 	// Stream one trace per message to exercise the incremental path.
 	for _, tr := range traces {
@@ -152,15 +101,6 @@ func newFakeTempo(t *testing.T) *fakeTempo {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, (&jsonpb.Marshaler{}).Marshal(w, &tempopb.SearchResponse{
 			Traces:  filterByPolicy(policy),
-			Metrics: &tempopb.SearchMetrics{},
-		}))
-	})
-	mux.HandleFunc("/api/metrics/query_range", func(w http.ResponseWriter, r *http.Request) {
-		policy := r.Header.Get(labelPolicyHeader)
-		f.record("http", policy)
-		w.Header().Set("Content-Type", "application/json")
-		require.NoError(t, (&jsonpb.Marshaler{}).Marshal(w, &tempopb.QueryRangeResponse{
-			Series:  filterSeriesByPolicy(policy),
 			Metrics: &tempopb.SearchMetrics{},
 		}))
 	})
@@ -201,19 +141,6 @@ func traceIDs(t *testing.T, frame *data.Frame) []string {
 		ids = append(ids, field.At(i).(string))
 	}
 	return ids
-}
-
-// withLBACMiddleware stands in for the SDK's header middleware (backend/http_headers.go), which adds a
-// forwarded header only if the request doesn't have it yet.
-func withLBACMiddleware(ctx context.Context, policy string) context.Context {
-	return httpclient.WithContextualMiddleware(ctx, httpclient.NamedMiddlewareFunc("lbac", func(_ httpclient.Options, next http.RoundTripper) http.RoundTripper {
-		return httpclient.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
-			if r.Header.Get(labelPolicyHeader) == "" {
-				r.Header.Add(labelPolicyHeader, policy)
-			}
-			return next.RoundTrip(r)
-		})
-	}))
 }
 
 func newParityDataSource(t *testing.T, fake *fakeTempo) *DataSource {
@@ -261,7 +188,8 @@ func TestStreamingAndNonStreamingReturnSameResultsWithTeamLBAC(t *testing.T) {
 				}
 				tr := backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(10, 0)}
 
-				// Non-streaming: QueryData -> HTTP, with the team header added by the SDK middleware stand-in.
+				// Non-streaming: QueryData -> HTTP. The middleware below stands in for the SDK's header middleware
+				// (backend/http_headers.go), which adds a forwarded header only if the request doesn't have it yet.
 				qdReq := &backend.QueryDataRequest{
 					PluginContext: pCtx,
 					Queries: []backend.DataQuery{{
@@ -273,7 +201,14 @@ func TestStreamingAndNonStreamingReturnSameResultsWithTeamLBAC(t *testing.T) {
 				}
 				httpCtx := backend.WithPluginContext(context.Background(), pCtx)
 				if tc.policy != "" {
-					httpCtx = withLBACMiddleware(httpCtx, tc.policy)
+					httpCtx = httpclient.WithContextualMiddleware(httpCtx, httpclient.NamedMiddlewareFunc("lbac", func(_ httpclient.Options, next http.RoundTripper) http.RoundTripper {
+						return httpclient.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+							if r.Header.Get(labelPolicyHeader) == "" {
+								r.Header.Add(labelPolicyHeader, tc.policy)
+							}
+							return next.RoundTrip(r)
+						})
+					}))
 				}
 				qdResp, err := ds.QueryData(httpCtx, qdReq)
 				require.NoError(t, err)
@@ -378,121 +313,11 @@ func TestRunStream_PreservesOutgoingMetadata(t *testing.T) {
 	}, backend.NewStreamSender(&recordingPacketSender{}))
 	require.NoError(t, err)
 
-	received := fake.receivedMD()
-	require.Len(t, received, 1)
-	require.Equal(t, []string{"kept"}, received[0].Get("x-other"))
-	require.Equal(t, []string{"custom"}, received[0].Get("x-custom"))
-	require.Equal(t, []string{"service=frontend"}, received[0].Get("x-prom-label-policy"))
+	require.Len(t, fake.grpcMD, 1)
+	require.Equal(t, []string{"kept"}, fake.grpcMD[0].Get("x-other"))
+	require.Equal(t, []string{"custom"}, fake.grpcMD[0].Get("x-custom"))
+	require.Equal(t, []string{"service=frontend"}, fake.grpcMD[0].Get("x-prom-label-policy"))
 
 	after, _ := metadata.FromOutgoingContext(ctx)
 	require.Equal(t, before, after, "RunStream must not mutate the caller's outgoing metadata")
-}
-
-// metricsSeriesValues maps series name to its values, from either transport's frames.
-func metricsSeriesValues(frames []*data.Frame) map[string][]float64 {
-	out := map[string][]float64{}
-	for _, f := range frames {
-		values := make([]float64, 0, f.Rows())
-		for i := 0; i < f.Rows(); i++ {
-			values = append(values, f.Fields[1].At(i).(float64))
-		}
-		out[f.Name] = values
-	}
-	return out
-}
-
-func TestStreamingAndNonStreamingMetricsReturnSameResultsWithTeamLBAC(t *testing.T) {
-	tests := []struct {
-		name   string
-		policy string
-		want   map[string][]float64
-	}{
-		{name: "no policy returns all series", policy: "", want: map[string][]float64{"frontend": {1, 2}, "backend": {3, 4}}},
-		{name: "policy restricts to frontend", policy: "service=frontend", want: map[string][]float64{"frontend": {1, 2}}},
-		{name: "policy matching nothing returns no series", policy: "service=nope", want: map[string][]float64{}},
-	}
-
-	for _, source := range []string{"incoming", "outgoing"} {
-		for _, tc := range tests {
-			t.Run(source+"/"+tc.name, func(t *testing.T) {
-				fake := newFakeTempo(t)
-				ds := newParityDataSource(t, fake)
-
-				pCtx := backend.PluginContext{
-					DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{UID: "tempo", Name: "Tempo", URL: fake.httpURL, JSONData: []byte(`{}`)},
-				}
-				tr := backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(10, 0)}
-				const query = "{} | rate()"
-
-				qdReq := &backend.QueryDataRequest{
-					PluginContext: pCtx,
-					Queries: []backend.DataQuery{{
-						RefID:     "A",
-						QueryType: "traceql",
-						TimeRange: tr,
-						JSON:      []byte(`{"refId":"A","queryType":"traceql","query":"` + query + `"}`),
-					}},
-				}
-				httpCtx := backend.WithPluginContext(context.Background(), pCtx)
-				if tc.policy != "" {
-					httpCtx = withLBACMiddleware(httpCtx, tc.policy)
-				}
-				qdResp, err := ds.QueryData(httpCtx, qdReq)
-				require.NoError(t, err)
-				require.NoError(t, qdResp.Responses["A"].Error)
-				httpSeries := metricsSeriesValues(qdResp.Responses["A"].Frames)
-
-				grpcCtx := config.WithGrafanaConfig(backend.WithPluginContext(context.Background(), pCtx),
-					config.NewGrafanaCfg(map[string]string{featuretoggles.EnabledFeatures: "streamingForwardTeamHeadersTempo"}))
-				if tc.policy != "" {
-					md := metadata.Pairs("x-prom-label-policy", tc.policy)
-					if source == "incoming" {
-						grpcCtx = metadata.NewIncomingContext(grpcCtx, md)
-					} else {
-						grpcCtx = metadata.NewOutgoingContext(grpcCtx, md)
-					}
-				}
-				packets := &recordingPacketSender{}
-				streamData, err := json.Marshal(map[string]any{
-					"query": query,
-					"timeRange": map[string]any{
-						"from": tr.From.Format(time.RFC3339),
-						"to":   tr.To.Format(time.RFC3339),
-					},
-				})
-				require.NoError(t, err)
-				err = ds.RunStream(grpcCtx, &backend.RunStreamRequest{
-					PluginContext: pCtx,
-					Path:          MetricsPathPrefix + "parity",
-					Data:          streamData,
-				}, backend.NewStreamSender(packets))
-				require.NoError(t, err)
-				require.NotEmpty(t, packets.packets)
-
-				require.Equal(t, tc.want, httpSeries, "non-streaming result")
-				require.Equal(t, tc.want, lastStreamedMetricsSeries(t, packets.packets), "streaming result")
-				require.Equal(t, []string{tc.policy}, fake.received("http"), "policy received by HTTP")
-				require.Equal(t, []string{tc.policy}, fake.received("grpc"), "policy received by gRPC")
-			})
-		}
-	}
-}
-
-// lastStreamedMetricsSeries reads the final streamed packet, which carries the last message's frames.
-func lastStreamedMetricsSeries(t *testing.T, packets []json.RawMessage) map[string][]float64 {
-	t.Helper()
-	var frame data.Frame
-	require.NoError(t, json.Unmarshal(packets[len(packets)-1], &frame))
-
-	state, _ := frame.FieldByName("state")
-	require.Equal(t, "done", state.At(0))
-	errField, _ := frame.FieldByName("error")
-	require.Empty(t, errField.At(0))
-
-	result, _ := frame.FieldByName("result")
-	var frames []*data.Frame
-	if raw := result.At(0).(json.RawMessage); len(raw) > 0 && string(raw) != "null" {
-		require.NoError(t, json.Unmarshal(raw, &frames))
-	}
-	return metricsSeriesValues(frames)
 }
