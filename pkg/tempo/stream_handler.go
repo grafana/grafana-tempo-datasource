@@ -46,18 +46,27 @@ func (ds *DataSource) RunStream(ctx context.Context, request *backend.RunStreamR
 		return backend.DownstreamErrorf("failed to get datasource information: %w", dsInfoErr)
 	}
 
-	// get incoming and team http headers and append to stream request.
+	// Get incoming and team http headers
 	headers, err := stream_utils.GetHeadersFromIncomingContext(ctx, ds.logger)
 	if err != nil {
 		return err
 	}
 	request.Headers = headers
 
-	// add them to the outgoing context.
-	// this is mainly needed for the api server as in that case, the outgoing context is empty and it is the incoming context that contains the metadata (if any)
-	for key, value := range headers {
-		ctx = metadata.AppendToOutgoingContext(ctx, key, value)
+
+	// Add headers to the outgoing context.
+	// This is mainly needed for the API server, as in that case the outgoing context is empty and
+	// it is the incoming context that contains the metadata (if any)
+	// Headers are set, not appended: the merged headers already include any outgoing metadata, so
+	// appending would duplicate them.
+	md, ok := metadata.FromOutgoingContext(ctx)
+	if !ok {
+		md = metadata.MD{}
 	}
+	for key, value := range headers {
+		md.Set(key, value)
+	}
+	ctx = metadata.NewOutgoingContext(ctx, md)
 
 	if strings.HasPrefix(request.Path, SearchPathPrefix) {
 		if err = ds.runSearchStream(ctx, request, sender, tempoDatasource); err != nil {
