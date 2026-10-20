@@ -1,6 +1,6 @@
 # Changelog
 
-## 13.2.5
+## 13.3.0
 
 - Fix TraceQL query editor being cut off or collapsing at some browser zoom levels ([#274](https://github.com/grafana/grafana-tempo-datasource/pull/274))
 - Fix trace ID queries that use the `traceId` query type not running ([#275](https://github.com/grafana/grafana-tempo-datasource/pull/275))
