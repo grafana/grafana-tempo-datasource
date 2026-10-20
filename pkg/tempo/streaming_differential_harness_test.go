@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -322,13 +323,18 @@ func withHTTPPolicy(ctx context.Context, policy string) context.Context {
 // runHTTP runs the query over the non-streaming path.
 func (d diffDS) runHTTP(t *testing.T, queryJSON string, policy string) backend.DataResponse {
 	t.Helper()
+	return d.runHTTPRange(t, queryJSON, policy, diffRange)
+}
+
+func (d diffDS) runHTTPRange(t *testing.T, queryJSON string, policy string, tr backend.TimeRange) backend.DataResponse {
+	t.Helper()
 	ctx := backend.WithPluginContext(context.Background(), d.pCtx)
 	if policy != "" {
 		ctx = withHTTPPolicy(ctx, policy)
 	}
 	resp, err := d.ds.QueryData(ctx, &backend.QueryDataRequest{
 		PluginContext: d.pCtx,
-		Queries:       []backend.DataQuery{{RefID: "A", QueryType: "traceql", TimeRange: diffRange, JSON: []byte(queryJSON)}},
+		Queries:       []backend.DataQuery{{RefID: "A", QueryType: "traceql", TimeRange: tr, JSON: []byte(queryJSON)}},
 	})
 	require.NoError(t, err)
 	return resp.Responses["A"]
@@ -369,7 +375,14 @@ func (d diffDS) runStreamFrom(t *testing.T, path, dataJSON, policy, source strin
 // why the span-set limit appears both as `spss` and as `SpansPerSpanSet`.
 func streamData(t *testing.T, query map[string]any) string {
 	t.Helper()
-	withRange := map[string]any{"timeRange": map[string]any{"from": diffRange.From.Format(time.RFC3339), "to": diffRange.To.Format(time.RFC3339)}}
+	return streamDataRange(t, query, diffRange)
+}
+
+// streamDataRange formats the time range like the frontend does (toISOString: UTC, millisecond precision).
+func streamDataRange(t *testing.T, query map[string]any, tr backend.TimeRange) string {
+	t.Helper()
+	const isoMillis = "2006-01-02T15:04:05.000Z"
+	withRange := map[string]any{"timeRange": map[string]any{"from": tr.From.UTC().Format(isoMillis), "to": tr.To.UTC().Format(isoMillis)}}
 	for k, v := range query {
 		withRange[k] = v
 	}
@@ -383,6 +396,19 @@ type diffTrace struct {
 	ID, Service, Name string
 	DurationMs        float64
 	StartMs           int64
+	// Spans lists the span IDs of each span set, span sets separated by "|".
+	Spans string
+}
+
+// spanSetSignature turns the span IDs of every span set into one comparable string.
+func spanSetSignature(sets [][]string) string {
+	parts := make([]string, 0, len(sets))
+	for _, ids := range sets {
+		ids = append([]string(nil), ids...)
+		sort.Strings(ids)
+		parts = append(parts, strings.Join(ids, ","))
+	}
+	return strings.Join(parts, "|")
 }
 
 func httpTraces(t *testing.T, frames []*data.Frame) []diffTrace {
@@ -402,10 +428,37 @@ func httpTraces(t *testing.T, frames []*data.Frame) []diffTrace {
 		}
 		out = append(out, diffTrace{
 			ID: col("traceID").At(i).(string), Service: col("traceService").At(i).(string), Name: col("traceName").At(i).(string),
-			DurationMs: dur, StartMs: col("startTime").At(i).(time.Time).UnixMilli(),
+			DurationMs: dur, StartMs: col("startTime").At(i).(time.Time).UnixMilli(), Spans: nestedSpans(t, f, i),
 		})
 	}
 	return out
+}
+
+// nestedSpans reads the span IDs of the span sets nested in a row of the traces table.
+func nestedSpans(t *testing.T, f *data.Frame, row int) string {
+	t.Helper()
+	nested, _ := f.FieldByName("nested")
+	if nested == nil {
+		return ""
+	}
+	raw, _ := nested.At(row).(json.RawMessage)
+	if len(raw) == 0 {
+		return ""
+	}
+	var frames []json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &frames))
+	var sets [][]string
+	for _, fr := range frames {
+		var sub data.Frame
+		require.NoError(t, json.Unmarshal(fr, &sub))
+		ids, _ := sub.FieldByName("spanID")
+		var set []string
+		for i := 0; ids != nil && i < ids.Len(); i++ {
+			set = append(set, ids.At(i).(string))
+		}
+		sets = append(sets, set)
+	}
+	return spanSetSignature(sets)
 }
 
 func streamedTraces(t *testing.T, packets []json.RawMessage) []diffTrace {
@@ -423,13 +476,43 @@ func streamedTraces(t *testing.T, packets []json.RawMessage) []diffTrace {
 		RootTraceName     string  `json:"rootTraceName"`
 		DurationMs        float64 `json:"durationMs"`
 		StartTimeUnixNano uint64  `json:"startTimeUnixNano"`
+		SpanSet           *struct {
+			Spans []struct {
+				SpanID string `json:"spanID"`
+			} `json:"spans"`
+		} `json:"spanSet"`
+		SpanSets []struct {
+			Spans []struct {
+				SpanID string `json:"spanID"`
+			} `json:"spans"`
+		} `json:"spanSets"`
 	}
 	if len(raw) > 0 {
 		require.NoError(t, json.Unmarshal(raw, &traces))
 	}
 	var out []diffTrace
 	for _, tr := range traces {
-		out = append(out, diffTrace{ID: tr.TraceID, Service: tr.RootServiceName, Name: tr.RootTraceName, DurationMs: tr.DurationMs, StartMs: int64(tr.StartTimeUnixNano / 1_000_000)})
+		// The HTTP path uses the single span set when there is one, and the list otherwise.
+		var sets [][]string
+		if tr.SpanSet != nil {
+			ids := []string{}
+			for _, sp := range tr.SpanSet.Spans {
+				ids = append(ids, sp.SpanID)
+			}
+			sets = append(sets, ids)
+		} else {
+			for _, set := range tr.SpanSets {
+				ids := []string{}
+				for _, sp := range set.Spans {
+					ids = append(ids, sp.SpanID)
+				}
+				sets = append(sets, ids)
+			}
+		}
+		out = append(out, diffTrace{
+			ID: tr.TraceID, Service: tr.RootServiceName, Name: tr.RootTraceName, DurationMs: tr.DurationMs,
+			StartMs: int64(tr.StartTimeUnixNano / 1_000_000), Spans: spanSetSignature(sets),
+		})
 	}
 	return out
 }

@@ -95,6 +95,32 @@ npm run server
 npm run e2e
 ```
 
+## Streaming and non-streaming differential tests
+
+Search and TraceQL metrics queries reach Tempo over HTTP when streaming is off and over gRPC when it is on. Both paths must send the same request and headers and return the same result. The tests run the same query through both paths and compare what comes back, so they find a difference without needing to know what the right result is. There are three kinds:
+
+| Tests                                                                   | What they use                                                 | What they check                                                                                                                  |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `TestDifferential_*` and `TestStreamingAndNonStreaming*` in `pkg/tempo` | A fake Tempo that records what it receives over HTTP and gRPC | The request (query, limit, time range, step, ...), the headers (team policy, basic auth, custom headers), the result, and errors |
+| `TestDifferential_GeneratedQueries_RealTempo` in `pkg/tempo`            | A real Tempo with the demo traces                             | Many generated queries: each one runs over both paths and the results are compared                                               |
+| `tests/e2e/streamingDifferential.spec.ts`                               | Grafana, the plugin and Tempo from `docker-compose.yaml`      | The same comparison through the frontend. `tempo-no-streaming` is the provisioned datasource with streaming off                  |
+
+The fake-Tempo tests run with `go test ./pkg/...`. The generated-query test needs a Tempo with data and is skipped without `DIFF_TEMPO_URL`:
+
+```shell
+docker compose up -d tempo db app loadgen   # wait about 5 minutes for traces
+DIFF_TEMPO_URL=http://localhost:3200 go test ./pkg/tempo -run TestDifferential_GeneratedQueries -v
+```
+
+Set `DIFF_SEED` to repeat a run (every run logs its seed) and `DIFF_CASES` for the number of cases per query kind. The test fails when Tempo has too few recent traces, since two paths that both return nothing always agree. CI runs it in the `streaming-differential` job with a fixed seed.
+
+Known differences, which the tests work around instead of failing on:
+
+- The HTTP path truncates the time range of metrics queries to whole seconds, the streaming path sends nanoseconds. The fake-Tempo tests and the e2e tests use whole-second ranges, and the generated-query test only logs these cases as `known gap`.
+- Forwarded request headers: Grafana does not apply its OAuth token and cookies middlewares to streams, so OAuth passthrough and cookies only reach Tempo over the HTTP path.
+
+When you change how either path builds its request, forwards headers or shapes results, run these tests. To add a query shape to the generated-query test, extend the generators at the top of `pkg/tempo/streaming_differential_generated_test.go`.
+
 ## Release
 
 You need commit access to the repository to publish a release.
