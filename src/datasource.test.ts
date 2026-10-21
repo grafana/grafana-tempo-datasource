@@ -133,28 +133,41 @@ describe('Tempo data source', () => {
     expect(response).toBe('empty');
   });
 
-  it('runs trace ID queries with the traceId query type', async () => {
+  describe('Trace ID tab', () => {
     const templateSrv: TemplateSrv = { replace: (s: string) => s } as unknown as TemplateSrv;
-    const handleTraceIdQuery = jest
-      .spyOn(TempoDatasource.prototype, 'handleTraceIdQuery')
-      .mockReturnValue(of({ data: [] }));
-    const ds = new TempoDatasource(defaultSettings, templateSrv);
-    const target = { refId: 'A', queryType: 'traceId', query: '5b8efff798038103d269b633813fc60c' } as TempoQuery;
-    await lastValueFrom(ds.query({ targets: [target] } as DataQueryRequest<TempoQuery>));
-    expect(handleTraceIdQuery).toHaveBeenCalledWith(expect.anything(), [target], '5b8efff798038103d269b633813fc60c');
-    handleTraceIdQuery.mockRestore();
-  });
 
-  it('returns empty response when a traceId query has no trace ID', async () => {
-    const templateSrv: TemplateSrv = { replace: jest.fn() } as unknown as TemplateSrv;
-    const ds = new TempoDatasource(defaultSettings, templateSrv);
-    const response = await lastValueFrom(
-      ds.query({
-        targets: [{ refId: 'refid1', queryType: 'traceId', query: '' } as Partial<TempoQuery>],
-      } as DataQueryRequest<TempoQuery>),
-      { defaultValue: 'empty' }
-    );
-    expect(response).toBe('empty');
+    // Restore via afterEach (not a manual mockRestore() at the end of the test body) so a failed
+    // assertion above it can't leave handleTraceIdQuery mocked for every later test in this file.
+    afterEach(() => jest.restoreAllMocks());
+
+    it('dispatches to handleTraceIdQuery with the traceId targets and query value', async () => {
+      const ds = new TempoDatasource(defaultSettings, templateSrv);
+      const handleTraceIdQuery = jest
+        .spyOn(TempoDatasource.prototype, 'handleTraceIdQuery')
+        .mockReturnValue(of({ data: [] }));
+
+      const target: Partial<TempoQuery> = { refId: 'refid1', queryType: 'traceId', query: 'abc123' };
+      const request = {
+        targets: [target as TempoQuery],
+      } as DataQueryRequest<TempoQuery>;
+
+      await lastValueFrom(ds.query(request));
+
+      // datasource.ts defaults spanPruning to true for this tab before dispatching, so the target
+      // handed to handleTraceIdQuery always carries it explicitly.
+      expect(handleTraceIdQuery).toHaveBeenCalledWith(request, [{ ...target, spanPruning: true }], 'abc123');
+    });
+
+    it('returns empty response when the traceId tab query is empty', async () => {
+      const ds = new TempoDatasource(defaultSettings, templateSrv);
+      const response = await lastValueFrom(
+        ds.query({
+          targets: [{ refId: 'refid1', queryType: 'traceId', query: '' } as Partial<TempoQuery>],
+        } as DataQueryRequest<TempoQuery>),
+        { defaultValue: 'empty' }
+      );
+      expect(response).toBe('empty');
+    });
   });
 
   describe('Variables should be interpolated correctly', () => {
