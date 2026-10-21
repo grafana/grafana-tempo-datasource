@@ -1,5 +1,12 @@
 # Changelog
 
+## 13.3.0
+
+- Fix TraceQL query editor being cut off or collapsing at some browser zoom levels ([#274](https://github.com/grafana/grafana-tempo-datasource/pull/274))
+- Fix trace ID queries that use the `traceId` query type not running ([#275](https://github.com/grafana/grafana-tempo-datasource/pull/275))
+- Fix security vulnerabilities ([#276](https://github.com/grafana/grafana-tempo-datasource/pull/276))
+- Update Go to 1.27.3 ([#279](https://github.com/grafana/grafana-tempo-datasource/pull/279))
+
 ## 13.2.4
 
 - Fix security vulnerabilities (CVE-2026-102278, CVE-2026-102276, CVE-2026-102990)
