@@ -6,8 +6,14 @@ import { LoadingPlaceholder } from '@grafana/ui';
 
 import type { ConfigEditorProps } from './configuration/ConfigEditor';
 import { TempoDatasource } from './datasource';
+import { initFeatureFlags } from './featureFlags';
 import { onDashboardLoadedHandler } from './tracking';
 import type { TempoQuery } from './types';
+
+// skip in tests: tests control flags via mocks rather than the host's OFREP provider
+if (process.env.NODE_ENV !== 'test') {
+  initFeatureFlags();
+}
 
 // Lazy load the QueryField and ConfigEditor components to reduce the size of the initial bundle
 const TempoQueryFieldLazy = lazy(() => import('./QueryField'));
