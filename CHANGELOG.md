@@ -1,5 +1,9 @@
 # Changelog
 
+## 13.4.0
+
+- Add Trace ID query type with span pruning and filter options ([#262](https://github.com/grafana/grafana-tempo-datasource/pull/262))
+
 ## 13.3.0
 
 - Fix TraceQL query editor being cut off or collapsing at some browser zoom levels ([#274](https://github.com/grafana/grafana-tempo-datasource/pull/274))
