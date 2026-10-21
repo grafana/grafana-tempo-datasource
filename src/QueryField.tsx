@@ -246,6 +246,7 @@ class TempoQueryFieldComponent extends PureComponent<Props, State> {
             onChange={onChange}
             app={app}
             range={this.props.range}
+            data={this.props.data}
           />
         )}
       </>

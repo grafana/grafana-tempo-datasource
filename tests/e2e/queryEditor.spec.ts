@@ -137,7 +137,7 @@ test.describe('Query editor', () => {
     test('smoke: shows the trace ID input and both option groups', async ({ page }) => {
       const queryRow = getQueryEditorRow(page, 'A');
       await switchQueryType(page, 'Trace ID');
-      await expect(queryRow.getByPlaceholder('Enter a trace ID (run with Enter or Shift+Enter)')).toBeVisible();
+      await expect(queryRow.getByPlaceholder('Enter a Trace ID (run with Enter)')).toBeVisible();
       // Only proves the groups mounted -- QueryOptionGroup's summary shows regardless of open state.
       await expect(queryRow.getByRole('button', { name: /Span Pruning Options/ })).toBeVisible();
       await expect(queryRow.getByRole('button', { name: /Filter Options/ })).toBeVisible();

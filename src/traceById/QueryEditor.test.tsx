@@ -60,4 +60,22 @@ describe('TraceIdQueryEditor', () => {
 
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ spanPruning: true }));
   });
+
+  it('shows the Tempo message when the trace response has one', () => {
+    const data = {
+      series: [{ refId: 'A', fields: [], length: 0, meta: { custom: { partial: true, message: 'Trace was pruned' } } }],
+    } as unknown as Props['data'];
+    renderQueryEditor({ data });
+
+    expect(screen.getByRole('status')).toHaveTextContent('Trace was pruned');
+  });
+
+  it('shows no message when the trace response has none', () => {
+    const data = {
+      series: [{ refId: 'A', fields: [], length: 0, meta: { custom: { partial: false, message: '' } } }],
+    } as unknown as Props['data'];
+    renderQueryEditor({ data });
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
 });

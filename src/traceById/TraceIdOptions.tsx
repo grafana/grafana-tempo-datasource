@@ -28,7 +28,8 @@ const parseOptionalInt = (val: string): number | undefined => {
 
 export const TraceIdOptions = React.memo<Props>(({ onChange, query }) => {
   const styles = useStyles2(getStyles);
-  const [isOpen, toggleOpen] = useToggle(false);
+  const [isSpanPruningOpen, toggleSpanPruningOpen] = useToggle(false);
+  const [isFilterOpen, toggleFilterOpen] = useToggle(false);
   const filterError = validateFilterQuery(query.filterQuery ?? '');
   const hasValidFilter = !!query.filterQuery?.trim() && !filterError;
   const [isFilterFocused, setIsFilterFocused] = React.useState(false);
@@ -117,8 +118,8 @@ export const TraceIdOptions = React.memo<Props>(({ onChange, query }) => {
         <QueryOptionGroup
           title="Span Pruning Options"
           collapsedInfo={collapsedSpanPruningOptions}
-          isOpen={isOpen}
-          onToggle={toggleOpen}
+          isOpen={isSpanPruningOpen}
+          onToggle={toggleSpanPruningOpen}
         >
           <EditorField label="On/Off" tooltip="Turn span pruning on or off for this query.">
             <RadioButtonGroup
@@ -177,8 +178,8 @@ export const TraceIdOptions = React.memo<Props>(({ onChange, query }) => {
         <QueryOptionGroup
           title="Filter Options"
           collapsedInfo={collapsedFilterOptions}
-          isOpen={isOpen}
-          onToggle={toggleOpen}
+          isOpen={isFilterOpen}
+          onToggle={toggleFilterOpen}
         >
           <EditorField
             label="Filter"

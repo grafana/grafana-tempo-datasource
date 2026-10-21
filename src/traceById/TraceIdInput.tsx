@@ -1,7 +1,6 @@
 import * as React from 'react';
 
-import { EditorField } from '@grafana/plugin-ui';
-import { Input } from '@grafana/ui';
+import { InlineField, Input } from '@grafana/ui';
 
 import { type TempoQuery } from '../types';
 
@@ -24,8 +23,10 @@ export function TraceIdInput({ query, onChange, onRunQuery }: Props) {
   };
 
   return (
-    <EditorField
+    <InlineField
       label="Trace ID"
+      labelWidth={12}
+      grow
       tooltip="The trace ID to look up."
       invalid={!isFocused && !!traceIdError}
       error={!isFocused ? traceIdError : undefined}
@@ -38,8 +39,8 @@ export function TraceIdInput({ query, onChange, onRunQuery }: Props) {
         onBlur={() => setIsFocused(false)}
         invalid={!!traceIdError}
         spellCheck={false}
-        placeholder="Enter a trace ID (run with Enter or Shift+Enter)"
+        placeholder="Enter a Trace ID (run with Enter)"
       />
-    </EditorField>
+    </InlineField>
   );
 }

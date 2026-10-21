@@ -51,7 +51,7 @@ describe('TraceIdInput', () => {
     expect(screen.getByRole('alert')).toBeInTheDocument();
 
     const user = userEvent.setup();
-    const input = screen.getByPlaceholderText('Enter a trace ID (run with Enter or Shift+Enter)');
+    const input = screen.getByPlaceholderText('Enter a Trace ID (run with Enter)');
     await user.click(input);
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();

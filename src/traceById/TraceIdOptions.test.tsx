@@ -22,9 +22,8 @@ describe('TraceIdOptions', () => {
     return inputs[inputs.length - 2];
   }
 
-  // Both groups have an On/Off control with the same labels; Keep Hierarchy's is second in the DOM.
   function getKeepHierarchyButton(label: 'On' | 'Off') {
-    return screen.getAllByRole('radio', { name: label })[1];
+    return screen.getByRole('radio', { name: label });
   }
 
   it('disables Keep Hierarchy and Match Depth when there is no valid filter', async () => {
@@ -64,7 +63,10 @@ describe('TraceIdOptions', () => {
   it('disables the Ancestor Depth input when keepHierarchy is falsy', async () => {
     const onChange = jest.fn();
     render(
-      <TraceIdOptions query={baseQuery({ filterQuery: '{ status = error }', keepHierarchy: false })} onChange={onChange} />
+      <TraceIdOptions
+        query={baseQuery({ filterQuery: '{ status = error }', keepHierarchy: false })}
+        onChange={onChange}
+      />
     );
 
     const user = userEvent.setup();
@@ -244,7 +246,7 @@ describe('TraceIdOptions', () => {
     expect(screen.getByText('Ancestor Depth: 3')).toBeInTheDocument();
   });
 
-  it('reveals fields from both the Span Pruning Options and Filter Options groups once expanded', async () => {
+  it('expands Span Pruning Options and Filter Options independently', async () => {
     const onChange = jest.fn();
     render(<TraceIdOptions query={baseQuery()} onChange={onChange} />);
 
@@ -255,6 +257,16 @@ describe('TraceIdOptions', () => {
     await user.click(screen.getByText('Span Pruning Options'));
 
     expect(screen.getByText('Group By')).toBeInTheDocument();
+    expect(screen.queryByText('Ancestor Depth')).not.toBeInTheDocument();
+
+    await user.click(screen.getByText('Filter Options'));
+
+    expect(screen.getByText('Group By')).toBeInTheDocument();
+    expect(screen.getByText('Ancestor Depth')).toBeInTheDocument();
+
+    await user.click(screen.getByText('Span Pruning Options'));
+
+    expect(screen.queryByText('Group By')).not.toBeInTheDocument();
     expect(screen.getByText('Ancestor Depth')).toBeInTheDocument();
   });
 });
