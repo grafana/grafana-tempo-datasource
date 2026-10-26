@@ -367,20 +367,6 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
       }
     }
 
-    // Trace ID: the query type the backend uses for a trace lookup. The TraceQL branch below
-    // already handles a bare trace ID; without this, a traceId target is dropped and the
-    // request completes with no data and no error.
-    if (targets.traceId?.length) {
-      const queryValue = this.applyVariables(targets.traceId[0], options.scopedVars)?.query || '';
-      reportInteraction('grafana_traces_traceID_queried', {
-        datasourceType: 'tempo',
-        app: options.app ?? '',
-        grafana_version: config.buildInfo.version,
-        hasQuery: queryValue !== '' ? true : false,
-      });
-      subQueries.push(this.handleTraceIdQuery(options, targets.traceId, queryValue));
-    }
-
     // TraceQL
     if (targets.traceql?.length) {
       try {
@@ -433,6 +419,32 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
             subQueries.push(this.handleTraceQlQuery(options, targets));
           }
         }
+      } catch (error) {
+        return of({ error: { message: error instanceof Error ? error.message : 'Unknown error occurred' }, data: [] });
+      }
+    }
+
+    // Trace ID (dedicated tab)
+    if (targets.traceId?.length) {
+      try {
+        // Default on here (not in the shared handleTraceIdQuery) so the TraceQL tab's hex-detect
+        // path doesn't gain a param it never sent before. applyVariables per-target (not just for
+        // the telemetry value) so a templated trace ID is expanded before dispatch, not sent literally.
+        const traceIdTargets = targets.traceId.map((t) =>
+          this.applyVariables({ ...t, spanPruning: t.spanPruning ?? true }, options.scopedVars)
+        );
+        const queryValue = traceIdTargets[0]?.query || '';
+
+        reportInteraction('grafana_traces_traceId_tab_queried', {
+          datasourceType: 'tempo',
+          app: options.app ?? '',
+          grafana_version: config.buildInfo.version,
+          hasQuery: queryValue !== '',
+          spanPruningEnabled: traceIdTargets[0].spanPruning,
+          keepHierarchyEnabled: !!traceIdTargets[0].keepHierarchy,
+        });
+
+        subQueries.push(this.handleTraceIdQuery(options, traceIdTargets, queryValue));
       } catch (error) {
         return of({ error: { message: error instanceof Error ? error.message : 'Unknown error occurred' }, data: [] });
       }
@@ -571,6 +583,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     return {
       ...expandedQuery,
       query: this.templateSrv.replace(query.query ?? '', scopedVars, VariableFormatID.Pipe),
+      filterQuery: this.templateSrv.replace(query.filterQuery ?? '', scopedVars, VariableFormatID.Pipe),
       serviceMapQuery: Array.isArray(query.serviceMapQuery)
         ? query.serviceMapQuery.map((query) => this.templateSrv.replace(query, scopedVars))
         : this.templateSrv.replace(query.serviceMapQuery ?? '', scopedVars),
@@ -589,7 +602,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     query: string
   ): Observable<DataQueryResponse> {
     const validTargets = targets
-      .filter((t) => t.query)
+      .filter((t) => t.query?.trim())
       .map((t): TempoQuery => ({ ...t, query: t.query?.trim(), queryType: 'traceId' }));
     if (!validTargets.length) {
       return EMPTY;
