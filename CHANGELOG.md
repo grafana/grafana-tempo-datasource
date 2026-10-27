@@ -1,5 +1,10 @@
 # Changelog
 
+## 13.4.1
+
+- Update backend dependencies ([#271](https://github.com/grafana/grafana-tempo-datasource/pull/271), [#287](https://github.com/grafana/grafana-tempo-datasource/pull/287))
+- Update node.js to v24.22.1 ([#285](https://github.com/grafana/grafana-tempo-datasource/pull/285))
+
 ## 13.4.0
 
 - Add Trace ID query type with span pruning and filter options ([#262](https://github.com/grafana/grafana-tempo-datasource/pull/262))
