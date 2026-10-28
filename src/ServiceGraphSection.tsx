@@ -67,9 +67,21 @@ export function ServiceGraphSection({
     );
   }
 
-  const filters = queryToFilter(
-    (Array.isArray(query.serviceMapQuery) ? query.serviceMapQuery[0] : query.serviceMapQuery) || ''
-  );
+  // A service map query can be a list of expressions which the data source ORs together. The filter
+  // UI only edits the first one, so the remaining expressions have to be carried over on every edit.
+  const isExpressionList = Array.isArray(query.serviceMapQuery);
+  const expressions: string[] = Array.isArray(query.serviceMapQuery)
+    ? query.serviceMapQuery
+    : [query.serviceMapQuery ?? ''];
+  const filters = queryToFilter(expressions[0] || '');
+
+  const updateFilters = (newFilters: AdHocVariableFilter[]) => {
+    const expression = filtersToQuery(newFilters);
+    onChange({
+      ...query,
+      serviceMapQuery: isExpressionList ? [expression, ...expressions.slice(1)] : expression,
+    });
+  };
 
   return (
     <div>
@@ -87,20 +99,17 @@ export function ServiceGraphSection({
               },
             ]}
             addFilter={(filter: AdHocVariableFilter) => {
-              onChange({
-                ...query,
-                serviceMapQuery: filtersToQuery([...filters, filter]),
-              });
+              updateFilters([...filters, filter]);
             }}
             removeFilter={(index: number) => {
               const newFilters = [...filters];
               newFilters.splice(index, 1);
-              onChange({ ...query, serviceMapQuery: filtersToQuery(newFilters) });
+              updateFilters(newFilters);
             }}
             changeFilter={(index: number, filter: AdHocVariableFilter) => {
               const newFilters = [...filters];
               newFilters.splice(index, 1, filter);
-              onChange({ ...query, serviceMapQuery: filtersToQuery(newFilters) });
+              updateFilters(newFilters);
             }}
           />
         </InlineField>
