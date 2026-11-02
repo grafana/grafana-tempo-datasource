@@ -64,6 +64,7 @@ import { doTempoMetricsStreaming, doTempoSearchStreaming } from './streaming';
 import { type TempoJsonData, type TempoQuery } from './types';
 import { getErrorMessage, mapErrorMessage, migrateFromSearchToTraceQLSearch } from './utils';
 import { TempoVariableSupport } from './variables';
+import { isStreamingDisabled } from './featureFlags';
 
 export const DEFAULT_LIMIT = 20;
 export const DEFAULT_SPSS = 3; // spans per span set
@@ -311,7 +312,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
    * @return true if streaming for search queries is enabled, false otherwise
    */
   isStreamingSearchEnabled() {
-    return this.streamingEnabled?.search && config.liveEnabled;
+    return !isStreamingDisabled() && this.streamingEnabled?.search && config.liveEnabled;
   }
   /**
    * Check if streaming for metrics queries is enabled (and available).
@@ -323,7 +324,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
    * @return true if streaming for metrics queries is enabled, false otherwise
    */
   isStreamingMetricsEnabled() {
-    return this.streamingEnabled?.metrics && config.liveEnabled;
+    return !isStreamingDisabled() && this.streamingEnabled?.metrics && config.liveEnabled;
   }
 
   isTraceQlMetricsQuery(query: string): boolean {

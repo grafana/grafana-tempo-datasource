@@ -8,6 +8,7 @@ import type { ConfigEditorProps } from './configuration/ConfigEditor';
 import { TempoDatasource } from './datasource';
 import { onDashboardLoadedHandler } from './tracking';
 import type { TempoQuery } from './types';
+import { initFeatureFlags } from './featureFlags';
 
 // Lazy load the QueryField and ConfigEditor components to reduce the size of the initial bundle
 const TempoQueryFieldLazy = lazy(() => import('./QueryField'));
@@ -45,3 +46,8 @@ export const plugin = new DataSourcePlugin(TempoDatasource)
 
 // Subscribe to on dashboard loaded event so that we can track plugin adoption
 getAppEvents().subscribe<DashboardLoadedEvent<TempoQuery>>(DashboardLoadedEvent, onDashboardLoadedHandler);
+
+
+if (process.env.NODE_ENV !== 'test') {
+  initFeatureFlags();
+}
