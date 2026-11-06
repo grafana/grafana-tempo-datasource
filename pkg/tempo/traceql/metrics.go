@@ -83,6 +83,7 @@ func TransformInstantMetricsResponse(resp tempopb.QueryInstantResponse) []*data.
 			Fields: append([]*data.Field{timeField}, valueField),
 			Meta: &data.FrameMeta{
 				PreferredVisualization: data.VisTypeTable,
+				Type:                   data.FrameTypeNumericMulti,
 			},
 		}
 
