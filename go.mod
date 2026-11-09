@@ -2,6 +2,9 @@ module github.com/grafana/grafana-tempo-datasource
 
 go 1.27.3
 
+// FIPS mode off by default, enable with GODEBUG=fips140=on
+godebug fips140=off
+
 require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.5.4
