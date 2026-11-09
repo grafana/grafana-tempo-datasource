@@ -133,6 +133,103 @@ describe('Tempo data source', () => {
     expect(response).toBe('empty');
   });
 
+  describe('Trace ID tab', () => {
+    const templateSrv: TemplateSrv = { replace: (s: string) => s } as unknown as TemplateSrv;
+
+    // afterEach, not a manual mockRestore(), so a failed assertion can't leave this mocked for later tests.
+    afterEach(() => jest.restoreAllMocks());
+
+    it('dispatches to handleTraceIdQuery with the traceId targets and query value', async () => {
+      const ds = new TempoDatasource(defaultSettings, templateSrv);
+      const handleTraceIdQuery = jest
+        .spyOn(TempoDatasource.prototype, 'handleTraceIdQuery')
+        .mockReturnValue(of({ data: [] }));
+
+      const target: Partial<TempoQuery> = { refId: 'refid1', queryType: 'traceId', query: 'abc123' };
+      const request = {
+        targets: [target as TempoQuery],
+      } as DataQueryRequest<TempoQuery>;
+
+      await lastValueFrom(ds.query(request));
+
+      // spanPruning is defaulted to true before dispatch; applyVariables also sets serviceMapQuery and
+      // filterQuery unconditionally (harmless here, shared with every other query type).
+      expect(handleTraceIdQuery).toHaveBeenCalledWith(
+        request,
+        [{ ...target, spanPruning: true, serviceMapQuery: '', filterQuery: '' }],
+        'abc123'
+      );
+    });
+
+    it('expands a templated trace ID before dispatching, not just for the telemetry value', async () => {
+      const expandingTemplateSrv: TemplateSrv = {
+        replace: (s: string) => (s === '$traceId' ? 'abc123' : s),
+      } as unknown as TemplateSrv;
+      const ds = new TempoDatasource(defaultSettings, expandingTemplateSrv);
+      const handleTraceIdQuery = jest
+        .spyOn(TempoDatasource.prototype, 'handleTraceIdQuery')
+        .mockReturnValue(of({ data: [] }));
+
+      const target: Partial<TempoQuery> = { refId: 'refid1', queryType: 'traceId', query: '$traceId' };
+      const request = {
+        targets: [target as TempoQuery],
+      } as DataQueryRequest<TempoQuery>;
+
+      await lastValueFrom(ds.query(request));
+
+      const [, dispatchedTargets, queryValue] = handleTraceIdQuery.mock.calls[0];
+      expect(queryValue).toBe('abc123');
+      expect((dispatchedTargets as TempoQuery[])[0].query).toBe('abc123');
+    });
+
+    it('expands a templated filter query before dispatching', async () => {
+      const expandingTemplateSrv: TemplateSrv = {
+        replace: (s: string) => s.replace('$service', 'checkout'),
+      } as unknown as TemplateSrv;
+      const ds = new TempoDatasource(defaultSettings, expandingTemplateSrv);
+      const handleTraceIdQuery = jest
+        .spyOn(TempoDatasource.prototype, 'handleTraceIdQuery')
+        .mockReturnValue(of({ data: [] }));
+
+      const target: Partial<TempoQuery> = {
+        refId: 'refid1',
+        queryType: 'traceId',
+        query: 'abc123',
+        filterQuery: '{ resource.service.name = "$service" }',
+      };
+      const request = {
+        targets: [target as TempoQuery],
+      } as DataQueryRequest<TempoQuery>;
+
+      await lastValueFrom(ds.query(request));
+
+      const [, dispatchedTargets] = handleTraceIdQuery.mock.calls[0];
+      expect((dispatchedTargets as TempoQuery[])[0].filterQuery).toBe('{ resource.service.name = "checkout" }');
+    });
+
+    it('returns empty response when the traceId tab query is empty', async () => {
+      const ds = new TempoDatasource(defaultSettings, templateSrv);
+      const response = await lastValueFrom(
+        ds.query({
+          targets: [{ refId: 'refid1', queryType: 'traceId', query: '' } as Partial<TempoQuery>],
+        } as DataQueryRequest<TempoQuery>),
+        { defaultValue: 'empty' }
+      );
+      expect(response).toBe('empty');
+    });
+
+    it('returns empty response when the traceId tab query is whitespace-only', async () => {
+      const ds = new TempoDatasource(defaultSettings, templateSrv);
+      const response = await lastValueFrom(
+        ds.query({
+          targets: [{ refId: 'refid1', queryType: 'traceId', query: '   ' } as Partial<TempoQuery>],
+        } as DataQueryRequest<TempoQuery>),
+        { defaultValue: 'empty' }
+      );
+      expect(response).toBe('empty');
+    });
+  });
+
   describe('Variables should be interpolated correctly', () => {
     function getQuery(serviceMapQuery: string | string[] = '$interpolationVar'): TempoQuery {
       return {
@@ -209,6 +306,13 @@ describe('Tempo data source', () => {
       const queries = ds.interpolateVariablesInQueries([getQuery(['$interpolationVar', '$interpolationVar'])], {});
       expect(queries[0].serviceMapQuery?.[0]).toBe('scopedInterpolationText');
       expect(queries[0].serviceMapQuery?.[1]).toBe('scopedInterpolationText');
+    });
+
+    it('when filterQuery contains variables', async () => {
+      const ds = new TempoDatasource(defaultSettings, templateSrv);
+      const query = { ...getQuery(), filterQuery: '{ resource.service.name = "$interpolationVarWithPipe" }' };
+      const queries = ds.interpolateVariablesInQueries([query], {});
+      expect(queries[0].filterQuery).toBe('{ resource.service.name = "interpolationTextOne|interpolationTextTwo" }');
     });
   });
 
@@ -330,6 +434,17 @@ describe('Tempo data source', () => {
       jest.spyOn(ds, 'getResource').mockResolvedValue({ data: 'test-data' });
       const response = await ds.metadataRequest('api/v2/search/tags');
       expect(response).toBe('test-data');
+    });
+
+    it('should pass the request id to getResource so an in flight request can be cancelled', async () => {
+      const ds = new TempoDatasource(defaultSettings);
+      const getResource = jest.spyOn(ds, 'getResource').mockResolvedValue({ data: 'test-data' });
+      await ds.metadataRequest('tag-values', { tag: 'span.foo' }, 'tag-values-span.foo');
+      expect(getResource).toHaveBeenCalledWith(
+        'tag-values',
+        { tag: 'span.foo' },
+        expect.objectContaining({ requestId: 'tag-values-span.foo' })
+      );
     });
   });
 
@@ -515,7 +630,7 @@ describe('Tempo service graph view', () => {
       queryType: 'traceql',
       filters: [],
       query:
-        '{span.db.name="my-service" || span.db.system="my-service" || span.peer.service="my-service" || span.messaging.system="my-service" || span.net.peer.name="my-service"}',
+        '{span.server.address="my-service" || span.service.peer.name="my-service" || span.db.system.name="my-service" || span.db.namespace="my-service" || span.network.peer.address="my-service" || span.db.name="my-service" || span.db.system="my-service" || span.peer.service="my-service" || span.messaging.system="my-service" || span.net.peer.name="my-service"}',
     });
 
     expect(response.data[2].name).toBe('Edges');

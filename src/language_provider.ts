@@ -9,7 +9,6 @@ import {
   getTagsByScope,
   getUnscopedTags,
 } from './SearchTraceQLEditor/utils';
-import { DEFAULT_TIME_RANGE_FOR_TAGS } from './configuration/TagsTimeRangeSettings';
 import { type TraceqlFilter, TraceqlSearchScope } from './dataquery';
 import { type TempoDatasource } from './datasource';
 import { enumIntrinsics, intrinsicsV1 } from './traceql/traceql';
@@ -26,6 +25,8 @@ interface GetOptionsV2 {
   query?: string;
   timeRangeForTags?: number;
   range?: TimeRange;
+  // Passed to the backend request so Grafana cancels an earlier request sharing the same id
+  requestId?: string;
 }
 
 export default class TempoLanguageProvider extends LanguageProvider {
@@ -39,8 +40,8 @@ export default class TempoLanguageProvider extends LanguageProvider {
     this.datasource = datasource;
   }
 
-  request = async (url: string, params = {}) => {
-    return await this.datasource.metadataRequest(url, params);
+  request = async (url: string, params = {}, requestId?: string) => {
+    return await this.datasource.metadataRequest(url, params, requestId);
   };
 
   start = async (range?: TimeRange, timeRangeForTags?: number) => {
@@ -86,7 +87,7 @@ export default class TempoLanguageProvider extends LanguageProvider {
     const params: { limit: number; start?: number; end?: number } = {
       limit: this.getTagsLimit(),
     };
-    if (timeRangeForTags && range && timeRangeForTags !== DEFAULT_TIME_RANGE_FOR_TAGS) {
+    if (timeRangeForTags && range) {
       const { start, end } = this.getTimeRangeForTags(timeRangeForTags, range);
       params.start = start;
       params.end = end;
@@ -139,7 +140,13 @@ export default class TempoLanguageProvider extends LanguageProvider {
     return [];
   };
 
-  async getOptionsV2({ tag, query, timeRangeForTags, range }: GetOptionsV2): Promise<Array<SelectableValue<string>>> {
+  async getOptionsV2({
+    tag,
+    query,
+    timeRangeForTags,
+    range,
+    requestId,
+  }: GetOptionsV2): Promise<Array<SelectableValue<string>>> {
     const encodedTag = this.encodeTag(tag);
     const params: { q?: string; limit: number; start?: number; end?: number; tag?: string } = {
       limit: this.getTagsLimit(),
@@ -149,7 +156,7 @@ export default class TempoLanguageProvider extends LanguageProvider {
       params.q = getTemplateSrv().replace(query, {}, VariableFormatID.Pipe);
     }
 
-    if (timeRangeForTags && range && timeRangeForTags !== DEFAULT_TIME_RANGE_FOR_TAGS) {
+    if (timeRangeForTags && range) {
       const { start, end } = this.getTimeRangeForTags(timeRangeForTags, range);
       params.start = start;
       params.end = end;
@@ -157,7 +164,7 @@ export default class TempoLanguageProvider extends LanguageProvider {
 
     // Add the encoded tag as a query parameter for the new resource endpoint
     params.tag = encodedTag;
-    const response = await this.request(`tag-values`, params);
+    const response = await this.request(`tag-values`, params, requestId);
 
     let options: Array<SelectableValue<string>> = [];
     if (response && response.tagValues) {

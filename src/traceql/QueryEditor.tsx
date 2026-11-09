@@ -78,7 +78,7 @@ export function QueryEditor(props: Props) {
         </div>
       )}
       <TraceQLEditor
-        placeholder="Enter a TraceQL query or trace ID (run with Shift+Enter)"
+        placeholder="Enter a TraceQL query (run with Shift+Enter)"
         query={query}
         onChange={props.onChange}
         datasource={props.datasource}

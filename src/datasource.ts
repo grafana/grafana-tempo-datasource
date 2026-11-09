@@ -424,6 +424,32 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
       }
     }
 
+    // Trace ID (dedicated tab)
+    if (targets.traceId?.length) {
+      try {
+        // Default on here (not in the shared handleTraceIdQuery) so the TraceQL tab's hex-detect
+        // path doesn't gain a param it never sent before. applyVariables per-target (not just for
+        // the telemetry value) so a templated trace ID is expanded before dispatch, not sent literally.
+        const traceIdTargets = targets.traceId.map((t) =>
+          this.applyVariables({ ...t, spanPruning: t.spanPruning ?? true }, options.scopedVars)
+        );
+        const queryValue = traceIdTargets[0]?.query || '';
+
+        reportInteraction('grafana_traces_traceId_tab_queried', {
+          datasourceType: 'tempo',
+          app: options.app ?? '',
+          grafana_version: config.buildInfo.version,
+          hasQuery: queryValue !== '',
+          spanPruningEnabled: traceIdTargets[0].spanPruning,
+          keepHierarchyEnabled: !!traceIdTargets[0].keepHierarchy,
+        });
+
+        subQueries.push(this.handleTraceIdQuery(options, traceIdTargets, queryValue));
+      } catch (error) {
+        return of({ error: { message: error instanceof Error ? error.message : 'Unknown error occurred' }, data: [] });
+      }
+    }
+
     // Search
     if (targets.traceqlSearch?.length) {
       if (targets.traceqlSearch[0].groupBy) {
@@ -557,6 +583,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     return {
       ...expandedQuery,
       query: this.templateSrv.replace(query.query ?? '', scopedVars, VariableFormatID.Pipe),
+      filterQuery: this.templateSrv.replace(query.filterQuery ?? '', scopedVars, VariableFormatID.Pipe),
       serviceMapQuery: Array.isArray(query.serviceMapQuery)
         ? query.serviceMapQuery.map((query) => this.templateSrv.replace(query, scopedVars))
         : this.templateSrv.replace(query.serviceMapQuery ?? '', scopedVars),
@@ -575,7 +602,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     query: string
   ): Observable<DataQueryResponse> {
     const validTargets = targets
-      .filter((t) => t.query)
+      .filter((t) => t.query?.trim())
       .map((t): TempoQuery => ({ ...t, query: t.query?.trim(), queryType: 'traceId' }));
     if (!validTargets.length) {
       return EMPTY;
@@ -860,14 +887,15 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     return request;
   }
 
-  async metadataRequest(url: string, params = {}) {
+  async metadataRequest(url: string, params = {}, requestId?: string) {
     // url must not start with a `/`, otherwise the AJAX-request
     // going from the browser will contain `//`, which can cause problems.
     if (url.startsWith('/')) {
       throw new Error(`invalid metadata request url: ${url}`);
     }
 
-    const res = await this.getResource(url, params, { method: 'GET', hideFromInspector: true });
+    // With a requestId Grafana cancels an in flight request that shares the same id
+    const res = await this.getResource(url, params, { method: 'GET', hideFromInspector: true, requestId });
     return res?.data ?? res;
   }
 
@@ -1288,7 +1316,20 @@ function makeTempoLinkServiceMap(
 
         // Only do the peer query if service is actively set as not instrumented
         if (isInstrumented === false) {
-          const filters = ['db.name', 'db.system', 'peer.service', 'messaging.system', 'net.peer.name']
+          const filters = [
+            // Current OpenTelemetry semantic conventions — what uninstrumented DB/peer nodes are keyed on
+            'server.address',
+            'service.peer.name',
+            'db.system.name',
+            'db.namespace',
+            'network.peer.address',
+            // Legacy names, kept for older instrumentation that still emits them
+            'db.name',
+            'db.system',
+            'peer.service',
+            'messaging.system',
+            'net.peer.name',
+          ]
             .map((peerAttribute) => `span.${peerAttribute}="${serviceName}"`)
             .join(' || ');
           query.queryType = 'traceql';
