@@ -193,16 +193,16 @@ function setupRegisterInteractionCommand(editor: monacoTypes.editor.IStandaloneC
   });
 }
 
-function setupAutoSize(editor: monacoTypes.editor.IStandaloneCodeEditor) {
-  const container = editor.getDomNode();
+export function setupAutoSize(editor: monacoTypes.editor.IStandaloneCodeEditor) {
+  // Size the element that Monaco's automaticLayout observes, not Monaco's own DOM node. If the observed element's
+  // height followed the editor's height, then at fractional browser zoom (e.g. 67%) ResizeObserver reports it a
+  // fraction of a pixel smaller, Monaco floors that to whole pixels and re-lays out, and the editor keeps shrinking
+  // by 1px per round until the text is clipped.
+  const container = editor.getContainerDomNode();
   const updateHeight = () => {
-    if (container) {
-      const contentHeight = Math.min(1000, editor.getContentHeight());
-      const width = parseInt(container.style.width, 10);
-      container.style.width = `${width}px`;
-      container.style.height = `${contentHeight}px`;
-      editor.layout({ width, height: contentHeight });
-    }
+    const contentHeight = Math.min(1000, editor.getContentHeight());
+    container.style.height = `${contentHeight}px`;
+    editor.layout({ width: editor.getLayoutInfo().width, height: contentHeight });
   };
   editor.onDidContentSizeChange(updateHeight);
   updateHeight();

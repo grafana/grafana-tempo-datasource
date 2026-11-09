@@ -1,5 +1,38 @@
 # Changelog
 
+## 13.4.2
+
+- Fix a connection freeze between Grafana and the plugin under heavy query load by updating google.golang.org/grpc to v1.85.0 ([grpc/grpc-go#9330](https://github.com/grpc/grpc-go/issues/9330))
+- Update frontend dependencies
+
+## 13.4.1
+
+- Update backend dependencies ([#271](https://github.com/grafana/grafana-tempo-datasource/pull/271), [#287](https://github.com/grafana/grafana-tempo-datasource/pull/287))
+- Update node.js to v24.22.1 ([#285](https://github.com/grafana/grafana-tempo-datasource/pull/285))
+
+## 13.4.0
+
+- Add Trace ID query type with span pruning and filter options ([#262](https://github.com/grafana/grafana-tempo-datasource/pull/262))
+
+## 13.3.0
+
+- Fix TraceQL query editor being cut off or collapsing at some browser zoom levels ([#274](https://github.com/grafana/grafana-tempo-datasource/pull/274))
+- Fix trace ID queries that use the `traceId` query type not running ([#275](https://github.com/grafana/grafana-tempo-datasource/pull/275))
+- Fix security vulnerabilities ([#276](https://github.com/grafana/grafana-tempo-datasource/pull/276))
+- Update Go to 1.27.3 ([#279](https://github.com/grafana/grafana-tempo-datasource/pull/279))
+
+## 13.2.4
+
+- Fix security vulnerabilities (CVE-2026-102278, CVE-2026-102276, CVE-2026-102990)
+
+## 13.2.3
+
+- Fix security vulnerabilities (CVE-2026-54285, CVE-2026-84445)
+
+## 13.2.2
+
+- Fix security vulnerabilities (CVE-2026-73088, CVE-2026-73089, CVE-2026-75899, CVE-2026-75931, CVE-2026-75975, CVE-2026-76172, CVE-2026-84375)
+
 ## 13.2.1
 
 - Dependency updates ([#226](https://github.com/grafana/grafana-tempo-datasource/pull/226))
