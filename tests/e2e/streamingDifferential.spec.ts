@@ -1,4 +1,4 @@
-import { expect, test } from '@grafana/plugin-e2e';
+import { expect, gte, test } from '@grafana/plugin-e2e';
 
 import { runNonStreaming, runStreaming, waitForData } from './streamingDifferential.driver';
 import {
@@ -17,6 +17,10 @@ const NON_STREAMING_UID = 'tempo-no-streaming';
 // Closed windows that ended 90 seconds ago keep the result sets stable while the TNS apps keep emitting data. They are
 // short so they stay clear of Tempo's block retention, and end on a whole second because the HTTP path truncates the
 // time range to seconds while streaming doesn't. The metrics window contains the search window.
+// Streaming does not start on Grafana 12.3.x: the plugin opens the Live channel with `stream`, which 12.3 does not know
+// (it expects `namespace`), so the page sends no query at all.
+const MIN_GRAFANA_VERSION = '12.4.0';
+
 const SEARCH_WINDOW_MS = 30 * 1000;
 const METRICS_WINDOW_MS = 10 * 60 * 1000;
 
@@ -28,8 +32,9 @@ const METRICS_QUERY = '{} | rate() by (resource.service.name)';
 test.describe('Streaming vs non-streaming differential', () => {
   let windowEnd: Date;
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, grafanaVersion }) => {
     test.skip(isCloudRun, 'Relies on the local compose stack and its provisioned datasources.');
+    test.skip(!gte(grafanaVersion, MIN_GRAFANA_VERSION), `Streaming needs Grafana ${MIN_GRAFANA_VERSION} or later.`);
     // On a fresh stack this can take a few minutes.
     test.setTimeout(6 * 60 * 1000);
     windowEnd = await waitForData(page, NON_STREAMING_UID, SEARCH_WINDOW_MS, 10);
