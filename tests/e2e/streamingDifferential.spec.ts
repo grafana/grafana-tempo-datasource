@@ -26,7 +26,8 @@ const METRICS_WINDOW_MS = 10 * 60 * 1000;
 
 // The limit is above the number of traces in the window: with fewer matches than the limit Tempo returns all of them,
 // otherwise it returns an arbitrary subset that can differ between two runs.
-const SEARCH_QUERY = { query: '{}', limit: 1000, tableType: 'traces' };
+const SEARCH_LIMIT = 1000;
+const SEARCH_QUERY = { query: '{}', limit: SEARCH_LIMIT, tableType: 'traces' };
 const METRICS_QUERY = '{} | rate() by (resource.service.name)';
 
 test.describe('Streaming vs non-streaming differential', () => {
@@ -49,6 +50,10 @@ test.describe('Streaming vs non-streaming differential', () => {
     );
 
     expect(streaming.length).toBeGreaterThan(0);
+    expect(
+      nonStreaming.length,
+      `the window holds ${SEARCH_LIMIT} or more traces, so Tempo may return a different subset on each run`
+    ).toBeLessThan(SEARCH_LIMIT);
     expect([...new Set(streaming)].sort()).toEqual([...new Set(nonStreaming)].sort());
   });
 

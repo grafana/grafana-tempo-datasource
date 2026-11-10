@@ -1,5 +1,5 @@
 // Drives Grafana for streamingDifferential.spec.ts: waits for data, runs a query in Explore and returns what the
-// non-streaming and the streaming path produced. The parsing is in streamingDifferential.helpers.ts, which has unit tests.
+// non-streaming and the streaming path produced. The parsing is in streamingDifferential.helpers.ts.
 import { expect, type ExplorePage } from '@grafana/plugin-e2e';
 import { type Page } from '@playwright/test';
 

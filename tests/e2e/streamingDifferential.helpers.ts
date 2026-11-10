@@ -1,5 +1,4 @@
-// Parsing and comparison for streamingDifferential.spec.ts. Nothing here touches the browser, so it is unit tested with
-// Jest (streamingDifferential.helpers.jest.ts).
+// Parsing and comparison for streamingDifferential.spec.ts. Nothing here touches the browser.
 
 export type Frame = {
   schema: { name?: string; fields: Array<{ name: string; labels?: Record<string, string> }> };
