@@ -4,26 +4,21 @@ import { expect, type ExplorePage } from '@grafana/plugin-e2e';
 import { type Page } from '@playwright/test';
 
 import {
-  type Frame,
-  type LiveColumns,
   finalLiveResult,
+  isQueryRequest,
   parseLiveMessages,
   secondsAgo,
   traceIdsFromFrames,
 } from './streamingDifferential.helpers';
-
-// How long a single wait may take: a response, a click, the end of a stream.
-const ACTION_TIMEOUT_MS = 30_000;
-
-// A query to run: the datasource, where the window ends, how long it is, and the query fields.
-export type QueryRun = { uid: string; end: Date; windowMs: number; query: Record<string, unknown> };
+import { ACTION_TIMEOUT_MS, type Frame, type LiveColumns, type QueryRun } from './streamingDifferential.types';
 
 // The TNS trace generators start together with the stack, and the windows end 90 seconds ago, so right after
 // `docker compose up` there is nothing in them yet. Waits until `windowMs` before that moment holds at least `min`
-// traces and returns where the window ends.
+// traces and returns where that window ends.
 export async function waitForData(page: Page, uid: string, windowMs: number, min: number): Promise<Date> {
+  let end = secondsAgo(90);
   const traceCount = async (): Promise<number> => {
-    const end = secondsAgo(90);
+    end = secondsAgo(90);
     const response = await page.request.post('/api/ds/query', {
       data: {
         queries: [
@@ -51,7 +46,7 @@ export async function waitForData(page: Page, uid: string, windowMs: number, min
       message: 'Tempo has no traces to compare; are the trace generators running?',
     })
     .toBeGreaterThanOrEqual(min);
-  return secondsAgo(90);
+  return end;
 }
 
 function exploreParams({ uid, end, windowMs, query }: QueryRun): URLSearchParams {
@@ -86,6 +81,9 @@ export async function runNonStreaming(
   const responsePromise = page.waitForResponse(
     async (r) => {
       if (!r.url().includes('/api/ds/query') || !r.ok()) {
+        return false;
+      }
+      if (!isQueryRequest(r.request().postDataJSON(), run.uid, run.query.query)) {
         return false;
       }
       // The body can be gone for responses of cancelled or superseded requests.

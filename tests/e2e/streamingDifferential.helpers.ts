@@ -1,17 +1,16 @@
 // Parsing and comparison for streamingDifferential.spec.ts. Nothing here touches the browser.
 
-export type Frame = {
-  schema: { name?: string; fields: Array<{ name: string; labels?: Record<string, string> }> };
-  data: { values: Array<Array<string | number | null>> };
-};
-
-// The columns of a Grafana Live message from the plugin: result, metrics, state, error (one row each).
-export type LiveColumns = unknown[][];
-
-export type FinalLiveResult = { state: 'done' | 'error'; result: unknown; error: string };
+import { type FinalLiveResult, type Frame, type LiveColumns } from './streamingDifferential.types';
 
 export function secondsAgo(seconds: number): Date {
   return new Date(Math.floor((Date.now() - seconds * 1000) / 1000) * 1000);
+}
+
+// Whether the body of a /api/ds/query request holds the query we ran: the same datasource and query text. Explore can
+// send other queries at the same time, and the page can query other datasources.
+export function isQueryRequest(body: unknown, uid: string, query: unknown): boolean {
+  const queries = (body as { queries?: Array<{ datasource?: { uid?: string }; query?: unknown }> } | null)?.queries;
+  return Array.isArray(queries) && queries.some((q) => q?.datasource?.uid === uid && q.query === query);
 }
 
 // A websocket frame can hold several messages separated by newlines. Keeps the columns of the data messages and skips

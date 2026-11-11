@@ -8,27 +8,18 @@ import {
   traceIdsFromStreamedTraces,
 } from './streamingDifferential.helpers';
 import { isCloudRun } from './env';
+import {
+  METRICS_QUERY,
+  METRICS_WINDOW_MS,
+  MIN_GRAFANA_VERSION,
+  NON_STREAMING_UID,
+  SEARCH_LIMIT,
+  SEARCH_QUERY,
+  SEARCH_WINDOW_MS,
+  STREAMING_UID,
+} from './streamingDifferential.types';
 
 // Streaming queries go over gRPC and non-streaming ones over HTTP, so the two must be checked against each other.
-// Both provisioned datasources point at the same Tempo; only `streamingEnabled` differs.
-const STREAMING_UID = 'tempo';
-const NON_STREAMING_UID = 'tempo-no-streaming';
-
-// Closed windows that ended 90 seconds ago keep the result sets stable while the TNS apps keep emitting data. They are
-// short so they stay clear of Tempo's block retention, and end on a whole second because the HTTP path truncates the
-// time range to seconds while streaming doesn't. The metrics window contains the search window.
-// Streaming does not start on Grafana 12.3.x: the plugin opens the Live channel with `stream`, which 12.3 does not know
-// (it expects `namespace`), so the page sends no query at all.
-const MIN_GRAFANA_VERSION = '12.4.0';
-
-const SEARCH_WINDOW_MS = 30 * 1000;
-const METRICS_WINDOW_MS = 10 * 60 * 1000;
-
-// The limit is above the number of traces in the window: with fewer matches than the limit Tempo returns all of them,
-// otherwise it returns an arbitrary subset that can differ between two runs.
-const SEARCH_LIMIT = 1000;
-const SEARCH_QUERY = { query: '{}', limit: SEARCH_LIMIT, tableType: 'traces' };
-const METRICS_QUERY = '{} | rate() by (resource.service.name)';
 
 test.describe('Streaming vs non-streaming differential', () => {
   let windowEnd: Date;
@@ -54,7 +45,7 @@ test.describe('Streaming vs non-streaming differential', () => {
       nonStreaming.length,
       `the window holds ${SEARCH_LIMIT} or more traces, so Tempo may return a different subset on each run`
     ).toBeLessThan(SEARCH_LIMIT);
-    expect([...new Set(streaming)].sort()).toEqual([...new Set(nonStreaming)].sort());
+    expect([...streaming].sort()).toEqual([...nonStreaming].sort());
   });
 
   for (const metricsQueryType of ['range', 'instant']) {
