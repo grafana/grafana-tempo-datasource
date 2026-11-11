@@ -269,25 +269,30 @@ func newDiffDSWithPolicy(t *testing.T, p *diffTempo, datasourcePolicy string) di
 // A whole-second range: the HTTP path truncates the time range to seconds and the streaming path does not for metrics.
 var diffRange = backend.TimeRange{From: time.Unix(1_000, 0), To: time.Unix(1_600, 0)}
 
-// runHTTP runs the query over the non-streaming path. Several policy values are separated by "|". The middleware stands in for the SDK's header middleware
-// (backend/http_headers.go): it forwards the policy only when the client was created with ForwardHTTPHeaders.
+// withHTTPPolicy stands in for the SDK's header middleware (backend/http_headers.go): it adds the policy to the HTTP
+// requests made with ctx, only when the client was created with ForwardHTTPHeaders. Several values are separated by "|".
+func withHTTPPolicy(ctx context.Context, policy string) context.Context {
+	return httpclient.WithContextualMiddleware(ctx, httpclient.NamedMiddlewareFunc("lbac", func(opts httpclient.Options, next http.RoundTripper) http.RoundTripper {
+		if !opts.ForwardHTTPHeaders {
+			return next
+		}
+		return httpclient.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Header.Get(labelPolicyHeader) == "" {
+				for _, v := range strings.Split(policy, "|") {
+					r.Header.Add(labelPolicyHeader, v)
+				}
+			}
+			return next.RoundTrip(r)
+		})
+	}))
+}
+
+// runHTTP runs the query over the non-streaming path.
 func (d diffDS) runHTTP(t *testing.T, queryJSON string, policy string) backend.DataResponse {
 	t.Helper()
 	ctx := backend.WithPluginContext(context.Background(), d.pCtx)
 	if policy != "" {
-		ctx = httpclient.WithContextualMiddleware(ctx, httpclient.NamedMiddlewareFunc("lbac", func(opts httpclient.Options, next http.RoundTripper) http.RoundTripper {
-			if !opts.ForwardHTTPHeaders {
-				return next
-			}
-			return httpclient.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
-				if r.Header.Get(labelPolicyHeader) == "" {
-					for _, v := range strings.Split(policy, "|") {
-						r.Header.Add(labelPolicyHeader, v)
-					}
-				}
-				return next.RoundTrip(r)
-			})
-		}))
+		ctx = withHTTPPolicy(ctx, policy)
 	}
 	resp, err := d.ds.QueryData(ctx, &backend.QueryDataRequest{
 		PluginContext: d.pCtx,
