@@ -2,6 +2,7 @@ process.env.TZ = 'Pacific/Easter';
 
 module.exports = {
   ...require('./.config/jest.config'),
+  testMatch: [...require('./.config/jest.config').testMatch, '<rootDir>/tests/e2e/**/*.jest.{ts,tsx}'],
   moduleNameMapper: {
     ...require('./.config/jest.config').moduleNameMapper,
     '^monaco-editor$': '<rootDir>/src/__mocks__/monaco-editor.ts',
