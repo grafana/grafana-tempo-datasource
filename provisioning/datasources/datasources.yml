@@ -18,6 +18,20 @@ datasources:
         datasourceUid: 'prometheus'
       streamingEnabled:
         search: true
+        metrics: true
+
+  # Same Tempo with streaming off, so the e2e suite can compare gRPC and HTTP results.
+  - name: 'Tempo (no streaming)'
+    uid: 'tempo-no-streaming'
+    type: 'tempo'
+    orgId: 1
+    version: 1
+    editable: true
+    url: 'http://tempo:3200'
+    jsonData:
+      streamingEnabled:
+        search: false
+        metrics: false
 
   - name: 'Prometheus'
     uid: 'prometheus'

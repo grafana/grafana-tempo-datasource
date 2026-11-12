@@ -204,6 +204,29 @@ func TestGetHeadersFromIncomingContext_DatasourceHeaderWinsOverConflictingTeamHe
 	assert.Equal(t, "extra", headers["x-custom-forward"])
 }
 
+func TestGetHeadersFromIncomingContext_DatasourceHeaderWinsOverTeamPolicyHeader(t *testing.T) {
+	// The team policy is renamed to X-Prom-Label-Policy before the clash check, so the datasource header is
+	// configured in another case to make sure the names are compared case-insensitively.
+	pluginCtx := backend.PluginContext{
+		DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{
+			JSONData: []byte(`{"httpHeaderName1": "x-prom-label-policy"}`),
+			DecryptedSecureJSONData: map[string]string{
+				"httpHeaderValue1": "datasource-policy",
+			},
+		},
+	}
+	ctx := backend.WithPluginContext(context.Background(), pluginCtx)
+	ctx = config.WithGrafanaConfig(ctx, config.NewGrafanaCfg(map[string]string{
+		featuretoggles.EnabledFeatures: "streamingForwardTeamHeadersTempo",
+	}))
+	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(TeamHttpHeaderKeyLower, "team-policy"))
+
+	headers, err := GetHeadersFromIncomingContext(ctx, testLogger())
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]string{TeamHttpHeaderKeyCamel: "datasource-policy"}, headers)
+}
+
 func TestGetClientOptionsHeaders_ParsesHeaders(t *testing.T) {
 	pluginCtx := backend.PluginContext{
 		DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{
