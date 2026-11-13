@@ -49,6 +49,22 @@ var (
 // minRecentTraces is how many traces the last few minutes must hold for a run to mean anything.
 const minRecentTraces = 20
 
+// minShareWithData is the share, in percent, of the compared cases of each kind that must return data.
+const minShareWithData = 50
+
+// hasData reports whether a response holds any trace (search) or series (metrics).
+func hasData(kind string, resp backend.DataResponse) bool {
+	if kind == "search" {
+		return len(resp.Frames) > 0 && resp.Frames[0].Rows() > 0
+	}
+	for _, f := range resp.Frames {
+		if f.Rows() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 type diffCase struct {
 	Kind       string // search | range | instant
 	Query      string
@@ -106,11 +122,13 @@ func genMetricsQuery(r *rand.Rand) string {
 	return fmt.Sprintf("{ %s } | %s%s", genFilter(r), pick(r, diffFuncs), pick(r, diffGroupBy))
 }
 
-// genRange returns a window that ended 90 to 240 seconds ago, so Tempo has settled it. Fractional windows have a
-// millisecond part, like the ones Grafana sends.
+// genRange returns a window of 30 to 120 seconds that ended 90 to 150 seconds ago: old enough for Tempo to have settled
+// it, and inside the last 270 seconds, because the CI job only waits for traces from 4 to 5 minutes ago. Longer windows
+// would reach back past the data and return nothing. Fractional windows have a millisecond part, like the ones Grafana
+// sends.
 func genRange(r *rand.Rand, fractional bool) (time.Time, time.Time) {
-	end := time.Now().Add(-time.Duration(90+r.Intn(150)) * time.Second).Truncate(time.Second)
-	start := end.Add(-time.Duration(60+r.Intn(540)) * time.Second)
+	end := time.Now().Add(-time.Duration(90+r.Intn(60)) * time.Second).Truncate(time.Second)
+	start := end.Add(-time.Duration(30+r.Intn(90)) * time.Second)
 	if fractional {
 		ms := time.Duration(1+r.Intn(998)) * time.Millisecond
 		return start.Add(ms), end.Add(ms)
@@ -239,7 +257,9 @@ func TestDifferential_GeneratedQueries_RealTempo(t *testing.T) {
 	require.GreaterOrEqual(t, len(tracesOf(t, probeResp)), minRecentTraces,
 		"Tempo has too few recent traces to compare anything; is the trace generator (loadgen) running?")
 
-	var stats struct{ compared, empty, bothErr, knownGap, spanSetGap int }
+	var stats struct{ compared, bothErr, knownGap, spanSetGap int }
+	withData := map[string]int{} // compared cases per kind that returned something, over any path
+	comparedBy := map[string]int{}
 	for _, kind := range []string{"search", "range", "instant"} {
 		cases := make([]diffCase, 0, n+len(diffInvalidSearch))
 		for i := 0; i < n; i++ {
@@ -256,7 +276,7 @@ func TestDifferential_GeneratedQueries_RealTempo(t *testing.T) {
 			cases = append(cases, c)
 		}
 		for i, c := range cases {
-			ok := t.Run(fmt.Sprintf("%s/%03d", kind, i), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/%03d", kind, i), func(t *testing.T) {
 				httpResp, packets := d.runDiffCase(t, c)
 				httpErr, streamErr := caseErrors(t, httpResp, packets)
 				// A stalled Tempo can time out one path and not the other. Run the case again before calling that a
@@ -271,6 +291,7 @@ func TestDifferential_GeneratedQueries_RealTempo(t *testing.T) {
 					stats.bothErr++
 					return
 				}
+				require.False(t, c.Invalid, "an invalid query was accepted by both paths\n  case: %s", c)
 
 				var diff string
 				var spanSetGap bool
@@ -278,6 +299,10 @@ func TestDifferential_GeneratedQueries_RealTempo(t *testing.T) {
 					diff, spanSetGap = d.compareSearch(t, c, httpResp, packets)
 				} else {
 					diff = compareMetrics(t, kind == "range", httpResp.Frames, streamedFrames(t, packets))
+				}
+				comparedBy[kind]++
+				if hasData(kind, httpResp) {
+					withData[kind]++
 				}
 				if diff == "" {
 					if spanSetGap {
@@ -288,16 +313,30 @@ func TestDifferential_GeneratedQueries_RealTempo(t *testing.T) {
 					stats.compared++
 					return
 				}
-				// The HTTP path truncates the metrics time range to whole seconds, the streaming path doesn't.
+				// The HTTP path truncates the metrics time range to whole seconds, the streaming path doesn't (#312). That
+				// can explain a difference, so run the case again with whole seconds: if the paths still differ, it is
+				// something else.
 				if kind != "search" && c.Fractional {
+					whole := c
+					whole.Fractional = false
+					whole.From, whole.To = c.From.Truncate(time.Second), c.To.Truncate(time.Second)
+					wholeResp, wholePackets := d.runDiffCase(t, whole)
+					wholeHTTPErr, wholeStreamErr := caseErrors(t, wholeResp, wholePackets)
+					require.Empty(t, wholeHTTPErr+wholeStreamErr, "the case with a whole-second range failed\n  case: %s", whole)
+					if wholeDiff := compareMetrics(t, kind == "range", wholeResp.Frames, streamedFrames(t, wholePackets)); wholeDiff != "" {
+						t.Fatalf("streaming and non-streaming differ, also with a whole-second range\n  case: %s\n%s\nrerun: DIFF_SEED=%d DIFF_CASES=%d", whole, wholeDiff, seed, n)
+					}
 					stats.knownGap++
-					t.Logf("known gap (time range with a sub-second part): %s\n%s", c, diff)
+					t.Logf("known gap (#312, time range with a sub-second part): %s\n%s", c, diff)
 					return
 				}
 				t.Fatalf("streaming and non-streaming differ\n  case: %s\n%s\nrerun: DIFF_SEED=%d DIFF_CASES=%d", c, diff, seed, n)
 			})
-			_ = ok
 		}
+		// Two paths that both return nothing always agree, so a run in which most cases come back empty proves little.
+		t.Logf("%s: %d compared, %d of them with data", kind, comparedBy[kind], withData[kind])
+		require.GreaterOrEqual(t, withData[kind]*100, minShareWithData*comparedBy[kind],
+			"%s: only %d of %d compared cases returned data; the generated queries or time windows do not match the data", kind, withData[kind], comparedBy[kind])
 	}
 	t.Logf("compared and equal: %d, both failed the same way: %d, known gap (metrics, fractional range): %d, known gap (several span sets): %d", stats.compared, stats.bothErr, stats.knownGap, stats.spanSetGap)
 }
@@ -311,7 +350,6 @@ func tracesOf(t *testing.T, resp backend.DataResponse) []diffTrace {
 	return httpTraces(t, resp.Frames)
 }
 
-// compareSearch returns a description of the difference between the two paths, or "".
 // firstSpanSet keeps only the first span set of a trace's span signature.
 func firstSpanSet(spans string) string {
 	first, _, _ := strings.Cut(spans, "|")
@@ -336,6 +374,8 @@ func diffTracesOrGap(http, streamed []diffTrace) (diff string, knownGap bool) {
 	return diff, false
 }
 
+// compareSearch returns a description of the difference between the two paths, or "", and whether the only difference was
+// the span sets after the first one (#314).
 func (d diffDS) compareSearch(t *testing.T, c diffCase, httpResp backend.DataResponse, packets []json.RawMessage) (string, bool) {
 	t.Helper()
 	got, streamed := tracesOf(t, httpResp), streamedTraces(t, packets)
@@ -367,6 +407,9 @@ func (d diffDS) compareSearch(t *testing.T, c diffCase, httpResp backend.DataRes
 	for name, res := range map[string][]diffTrace{"http": got, "stream": streamed} {
 		if len(res) > c.Limit {
 			return fmt.Sprintf("  %s returned %d traces, limit is %d", name, len(res), c.Limit), false
+		}
+		if len(res) < c.Limit {
+			return fmt.Sprintf("  %s returned %d traces, fewer than the limit %d, although the full result has %d", name, len(res), c.Limit, len(universe)), false
 		}
 		for _, tr := range res {
 			tr.Spans = firstSpanSet(tr.Spans) // the span sets after the first one are the known gap

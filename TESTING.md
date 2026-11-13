@@ -27,10 +27,10 @@ There are three layers. They are not interchangeable: each one sees something th
 
 ### Why we need both a fake and a real Tempo
 
-We measured it by injecting one-line bugs into the plugin and running the tests (53 faults in the request, header and result code of both paths):
+We checked it by injecting one-line bugs into the plugin and running the tests. These numbers are a snapshot from November 2026 (53 faults in the request, header and result code of both paths); rerun the experiment before relying on them after big changes.
 
-- **The fake is needed.** Before the fake-Tempo tests, 21 of the original 50 faults passed every test (the tests caught 29): dropped basic auth over gRPC, an HTTP client that stopped forwarding the team policy, duplicate traces not removed, exemplars dropped, and most streaming request-construction faults. A real Tempo cannot show any of these. It ignores the policy header, it returns what it was asked for whatever the request looked like, and it does not send duplicates on demand.
-- **A real Tempo adds something else.** For these faults it found nothing the fake does not (every fault the generated test catches is also caught by the fake-Tempo and unit tests). What it checks is whether our assumptions about Tempo's real responses hold, and a fault list cannot express that. So far it found two differences between the paths that nothing else did: the HTTP path truncates metrics time ranges to whole seconds while streaming sends nanoseconds, and the HTTP table shows only the first span set of a grouped search while streaming shows all of them (see below).
+- **The fake is needed.** Before the fake-Tempo tests existed, 21 of the first 50 faults passed every test: dropped basic auth over gRPC, an HTTP client that stopped forwarding the team policy, duplicate traces not removed, exemplars dropped, and most streaming request-construction faults. A real Tempo cannot show any of these. It ignores the policy header, it returns what it was asked for whatever the request looked like, and it does not send duplicates on demand.
+- **A real Tempo adds something else.** For these faults it found nothing the fake does not: the other tests catch all 53, and the generated test alone catches 40 of them, all also caught by the others. What it checks is whether our assumptions about Tempo's real responses hold, and a fault list cannot express that. So far it found two differences between the paths that nothing else did: the HTTP path truncates metrics time ranges to whole seconds while streaming sends nanoseconds, and the HTTP table shows only the first span set of a grouped search while streaming shows all of them (see below).
 - **The fake and the real Tempo check each other.** The fake's picture of Tempo comes from us. The real-Tempo test runs in CI on pull requests, including the ones that change the pinned Tempo image in `docker-compose.yaml`, so a Tempo that starts returning something the fake does not model shows up as a failure.
 
 If you can state exactly what the plugin should send, put the test in the fake-Tempo harness. If the question is whether both paths cope with whatever a real Tempo returns, extend the generators in the real-Tempo test.
@@ -47,7 +47,7 @@ A related bug the generated test does not reach: a span attribute that is an arr
 
 ### Reading a failure of the real-Tempo test
 
-The test prints the seed and the case: rerun it with `DIFF_SEED=<seed> DIFF_CASES=<n>` to get the same queries. It fails if Tempo has too few recent traces, because two paths that both return nothing always agree. A case where only one path times out is run once more before it counts.
+The test prints the seed and the case: rerun it with `DIFF_SEED=<seed> DIFF_CASES=<n>` to get the same queries. The seed fixes the queries, not the time windows: they are taken from the current time (windows of 30 to 120 seconds that ended 90 to 150 seconds ago), so a rerun uses slightly different windows over the same data. It fails if Tempo has too few recent traces, and also if fewer than half of the compared cases of a kind return any data, because two paths that both return nothing always agree. The windows stay inside the last 270 seconds because the CI job only waits for traces from 4 to 5 minutes ago; widen them only together with that wait. A case where only one path times out is run once more before it counts.
 
 ## Checking that a test can fail
 
