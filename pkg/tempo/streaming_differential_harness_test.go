@@ -364,6 +364,9 @@ func (d diffDS) runStreamFrom(t *testing.T, path, dataJSON, policy, source strin
 }
 
 // streamData builds the payload the frontend sends over Grafana Live: the query fields plus the time range.
+// The keys follow what src/streaming.ts sends (`{...query, SpansPerSpanSet, timeRange}`, and `step` in nanoseconds for
+// metrics). The plugin decodes the same payload as the backend query, as TempoQuery and as Tempo's own request, which is
+// why the span-set limit appears both as `spss` and as `SpansPerSpanSet`.
 func streamData(t *testing.T, query map[string]any) string {
 	t.Helper()
 	withRange := map[string]any{"timeRange": map[string]any{"from": diffRange.From.Format(time.RFC3339), "to": diffRange.To.Format(time.RFC3339)}}

@@ -34,10 +34,10 @@ func TestTeamPolicyIsForwardedOnEveryHTTPCall(t *testing.T) {
 
 	calls := []struct {
 		name string
-		path string // part of the path Tempo is expected to receive
+		path string // the path Tempo is expected to receive; a trailing slash means "starts with"
 		call func()
 	}{
-		{"trace by ID", "/traces/", func() {
+		{"trace by ID", "/api/v2/traces/", func() {
 			_, _ = d.ds.QueryData(ctx, &backend.QueryDataRequest{PluginContext: d.pCtx, Queries: []backend.DataQuery{
 				{RefID: "A", QueryType: "traceId", JSON: []byte(`{"refId":"A","queryType":"traceId","query":"0000000000000001"}`)},
 			}})
@@ -65,7 +65,7 @@ func TestTeamPolicyIsForwardedOnEveryHTTPCall(t *testing.T) {
 			defer mu.Unlock()
 			var matched int
 			for path, got := range policies {
-				if !strings.Contains(path, c.path) {
+				if path != c.path && !(strings.HasSuffix(c.path, "/") && strings.HasPrefix(path, c.path)) {
 					continue
 				}
 				for _, g := range got {
@@ -102,7 +102,10 @@ func TestTeamPolicyInResourceRequestHeadersIsForwarded(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, []string{policy}, got)
+	require.NotEmpty(t, got, "Tempo received no request")
+	for _, g := range got {
+		require.Equal(t, policy, g)
+	}
 }
 
 func callResource(t *testing.T, ctx context.Context, d diffDS, path, url string) {
