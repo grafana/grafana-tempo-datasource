@@ -32,7 +32,7 @@ import (
 // The datasource is built with NewDatasource, so both clients come from the real settings (TLS, basic auth, custom
 // headers). A single TLS server answers HTTP and gRPC and records what each transport received.
 
-var diffHeaders = []string{"X-Prom-Label-Policy", "Authorization", "X-Custom", "X-Scope-OrgID"}
+var diffHeaders = []string{labelPolicyHeader, "Authorization", "X-Custom", "X-Scope-OrgID"}
 
 // diffReq is a transport-independent view of the request Tempo received.
 type diffReq struct {
@@ -48,7 +48,9 @@ type diffReq struct {
 
 type diffRecord struct {
 	Req diffReq
-	Hdr map[string]string
+	Hdr map[string]string // header values, joined with a comma
+	// Lines are the policy header values as received: one entry per header line over HTTP, one per metadata value over gRPC.
+	Lines []string
 }
 
 type diffTempo struct {
@@ -88,6 +90,11 @@ func httpHeaders(r *http.Request) map[string]string {
 		out[h] = strings.Join(r.Header.Values(h), ",")
 	}
 	return out
+}
+
+func grpcPolicyLines(ctx context.Context) []string {
+	md, _ := metadata.FromIncomingContext(ctx)
+	return md.Get(labelPolicyMetadataKey)
 }
 
 func grpcHeaders(ctx context.Context) map[string]string {
@@ -133,7 +140,7 @@ func (p *diffTempo) handleHTTP(t *testing.T) http.Handler {
 
 	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		p.record("http", diffRecord{Hdr: httpHeaders(r), Req: diffReq{
+		p.record("http", diffRecord{Hdr: httpHeaders(r), Lines: r.Header.Values(labelPolicyHeader), Req: diffReq{
 			Kind: "search", Query: q.Get("q"), Limit: atoi(q.Get("limit")), Spss: atoi(q.Get("spss")),
 			StartNs: tempoTime(q.Get("start")), EndNs: tempoTime(q.Get("end")),
 		}})
@@ -146,7 +153,7 @@ func (p *diffTempo) handleHTTP(t *testing.T) http.Handler {
 	mux.HandleFunc("/api/metrics/query_range", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		step, _ := time.ParseDuration(q.Get("step"))
-		p.record("http", diffRecord{Hdr: httpHeaders(r), Req: diffReq{
+		p.record("http", diffRecord{Hdr: httpHeaders(r), Lines: r.Header.Values(labelPolicyHeader), Req: diffReq{
 			Kind: "range", Query: q.Get("q"), StartNs: tempoTime(q.Get("start")), EndNs: tempoTime(q.Get("end")),
 			StepNs: int64(step), Exemplars: atoi(q.Get("exemplars")),
 		}})
@@ -158,7 +165,7 @@ func (p *diffTempo) handleHTTP(t *testing.T) http.Handler {
 	})
 	mux.HandleFunc("/api/metrics/query", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		p.record("http", diffRecord{Hdr: httpHeaders(r), Req: diffReq{
+		p.record("http", diffRecord{Hdr: httpHeaders(r), Lines: r.Header.Values(labelPolicyHeader), Req: diffReq{
 			Kind: "instant", Query: q.Get("q"), StartNs: tempoTime(q.Get("start")), EndNs: tempoTime(q.Get("end")),
 		}})
 		if q.Get("q") == diffFailQuery {
@@ -179,14 +186,14 @@ type diffGRPC struct {
 
 func (s *diffGRPC) Search(req *tempopb.SearchRequest, srv tempopb.StreamingQuerier_SearchServer) error {
 	hdr := grpcHeaders(srv.Context())
-	s.p.record("grpc", diffRecord{Hdr: hdr, Req: diffReq{
+	s.p.record("grpc", diffRecord{Hdr: hdr, Lines: grpcPolicyLines(srv.Context()), Req: diffReq{
 		Kind: "search", Query: req.Query, Limit: req.Limit, Spss: req.SpansPerSpanSet,
 		StartNs: int64(req.Start) * int64(time.Second), EndNs: int64(req.End) * int64(time.Second),
 	}})
 	if req.Query == diffFailQuery {
 		return grpcstatus.Error(grpccodes.InvalidArgument, "bad query")
 	}
-	traces := filterByPolicy(hdr["X-Prom-Label-Policy"])
+	traces := filterByPolicy(hdr[labelPolicyHeader])
 	if s.p.duplicate && len(traces) > 0 {
 		traces = append(traces, traces[0])
 	}
@@ -200,14 +207,14 @@ func (s *diffGRPC) Search(req *tempopb.SearchRequest, srv tempopb.StreamingQueri
 
 func (s *diffGRPC) MetricsQueryRange(req *tempopb.QueryRangeRequest, srv tempopb.StreamingQuerier_MetricsQueryRangeServer) error {
 	hdr := grpcHeaders(srv.Context())
-	s.p.record("grpc", diffRecord{Hdr: hdr, Req: diffReq{
+	s.p.record("grpc", diffRecord{Hdr: hdr, Lines: grpcPolicyLines(srv.Context()), Req: diffReq{
 		Kind: "range", Query: req.Query, StartNs: int64(req.Start), EndNs: int64(req.End), StepNs: int64(req.Step), Exemplars: req.Exemplars,
 	}})
 	if req.Query == diffFailQuery {
 		return grpcstatus.Error(grpccodes.InvalidArgument, "bad query")
 	}
 	// Like Tempo, each message carries the accumulated series.
-	resp := rangeResponse(hdr["X-Prom-Label-Policy"])
+	resp := rangeResponse(hdr[labelPolicyHeader])
 	for i := 1; i < len(resp.Series); i++ {
 		if err := srv.Send(&tempopb.QueryRangeResponse{Series: resp.Series[:i], Metrics: resp.Metrics}); err != nil {
 			return err
@@ -218,13 +225,13 @@ func (s *diffGRPC) MetricsQueryRange(req *tempopb.QueryRangeRequest, srv tempopb
 
 func (s *diffGRPC) MetricsQueryInstant(req *tempopb.QueryInstantRequest, srv tempopb.StreamingQuerier_MetricsQueryInstantServer) error {
 	hdr := grpcHeaders(srv.Context())
-	s.p.record("grpc", diffRecord{Hdr: hdr, Req: diffReq{
+	s.p.record("grpc", diffRecord{Hdr: hdr, Lines: grpcPolicyLines(srv.Context()), Req: diffReq{
 		Kind: "instant", Query: req.Query, StartNs: int64(req.Start), EndNs: int64(req.End),
 	}})
 	if req.Query == diffFailQuery {
 		return grpcstatus.Error(grpccodes.InvalidArgument, "bad query")
 	}
-	resp := instantResponse(hdr["X-Prom-Label-Policy"])
+	resp := instantResponse(hdr[labelPolicyHeader])
 	for i := 1; i < len(resp.Series); i++ {
 		if err := srv.Send(&tempopb.QueryInstantResponse{Series: resp.Series[:i], Metrics: resp.Metrics}); err != nil {
 			return err
@@ -342,7 +349,7 @@ func (d diffDS) runStreamFrom(t *testing.T, path, dataJSON, policy, source strin
 	if policy != "" {
 		var pairs []string
 		for _, v := range strings.Split(policy, "|") {
-			pairs = append(pairs, "x-prom-label-policy", v)
+			pairs = append(pairs, labelPolicyMetadataKey, v)
 		}
 		md := metadata.Pairs(pairs...)
 		if source == "outgoing" {
@@ -522,7 +529,7 @@ func assertSameRequestAndHeaders(t *testing.T, p *diffTempo, policy string) {
 	require.Equal(t, h.Req, g.Req, "request differs between HTTP and streaming")
 	require.Equal(t, h.Hdr, g.Hdr, "headers differ between HTTP and streaming")
 
-	require.Equal(t, policy, g.Hdr["X-Prom-Label-Policy"])
+	require.Equal(t, policy, g.Hdr[labelPolicyHeader])
 	require.Equal(t, "custom", g.Hdr["X-Custom"])
 	require.Equal(t, "org-1", g.Hdr["X-Scope-OrgID"])
 	require.True(t, strings.HasPrefix(g.Hdr["Authorization"], "Basic "), "basic auth missing: %q", g.Hdr["Authorization"])
@@ -578,13 +585,17 @@ func TestDifferential_MultiValuePolicy(t *testing.T) {
 	d.runStream(t, SearchPathPrefix+"multi", streamData(t, map[string]any{"query": "{}", "limit": 7, "spss": 5, "SpansPerSpanSet": 5}), policy)
 
 	h, g := p.only(t, "http"), p.only(t, "grpc")
-	require.Equal(t, "service=frontend,service=backend", h.Hdr["X-Prom-Label-Policy"])
-	require.Equal(t, h.Hdr["X-Prom-Label-Policy"], g.Hdr["X-Prom-Label-Policy"])
+	// Over HTTP the values arrive as separate header lines, over gRPC as one comma-joined value.
+	require.Equal(t, []string{"service=frontend", "service=backend"}, h.Lines)
+	require.Equal(t, []string{"service=frontend,service=backend"}, g.Lines)
+	// Joined the same way, they are the same header value.
+	require.Equal(t, h.Hdr[labelPolicyHeader], g.Hdr[labelPolicyHeader])
 }
 
-// A header configured on the datasource wins over the policy Grafana adds, on both paths. This pins the current,
-// documented behaviour (the gRPC interceptor sets datasource headers last, and the SDK adds the policy only when the
-// header is absent), not a product requirement: a datasource header named like the policy header overrides it.
+// A header configured on the datasource wins over the policy Grafana adds, on both paths. This pins the current
+// behaviour, not a product requirement: a datasource header named like the policy header overrides it. Over gRPC the
+// plugin does this (the interceptor sets datasource headers last). Over HTTP it comes from withHTTPPolicy, which
+// mirrors the SDK middleware by adding the policy only when the header is absent; the SDK itself is not exercised.
 func TestDifferential_DatasourceHeaderWinsOverTeamPolicy(t *testing.T) {
 	p := newDiffTempo(t)
 	d := newDiffDSWithPolicy(t, p, "datasource-policy")

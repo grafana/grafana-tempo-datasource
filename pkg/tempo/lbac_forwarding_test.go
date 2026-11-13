@@ -164,7 +164,7 @@ func TestConcurrentRequestsKeepTheirOwnPolicy(t *testing.T) {
 		got := map[string]int{}
 		p.mu.Lock()
 		for _, r := range p.rec[transport] {
-			got[r.Hdr["X-Prom-Label-Policy"]]++
+			got[r.Hdr[labelPolicyHeader]]++
 		}
 		p.mu.Unlock()
 		for _, policy := range policies {

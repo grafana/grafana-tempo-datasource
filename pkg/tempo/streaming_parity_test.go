@@ -27,6 +27,9 @@ import (
 
 const labelPolicyHeader = "X-Prom-Label-Policy"
 
+// labelPolicyMetadataKey is the gRPC metadata key the policy travels under (metadata keys are lower case).
+const labelPolicyMetadataKey = "x-prom-label-policy"
+
 // fakeTempo serves the same label-policy-filtered corpus over HTTP (/api/search) and gRPC (Search), the way a
 // Tempo behind a Team LBAC proxy would. It records the policy each transport received.
 type fakeTempo struct {
@@ -64,6 +67,12 @@ func (f *fakeTempo) record(transport, policy string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.policies[transport] = append(f.policies[transport], policy)
+}
+
+func (f *fakeTempo) receivedMD() []metadata.MD {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]metadata.MD(nil), f.grpcMD...)
 }
 
 func (f *fakeTempo) received(transport string) []string {
@@ -149,7 +158,8 @@ func traceIDs(t *testing.T, frame *data.Frame) []string {
 
 func newParityDataSource(t *testing.T, fake *fakeTempo) *DataSource {
 	t.Helper()
-	httpClient, err := httpclient.New(httpclient.Options{})
+	// NewDatasource sets ForwardHTTPHeaders, which is what lets the SDK middleware add the policy.
+	httpClient, err := httpclient.New(httpclient.Options{ForwardHTTPHeaders: true})
 	require.NoError(t, err)
 	conn, err := grpc.NewClient(fake.grpcURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
@@ -205,14 +215,7 @@ func TestStreamingAndNonStreamingReturnSameResultsWithTeamLBAC(t *testing.T) {
 				}
 				httpCtx := backend.WithPluginContext(context.Background(), pCtx)
 				if tc.policy != "" {
-					httpCtx = httpclient.WithContextualMiddleware(httpCtx, httpclient.NamedMiddlewareFunc("lbac", func(_ httpclient.Options, next http.RoundTripper) http.RoundTripper {
-						return httpclient.RoundTripperFunc(func(r *http.Request) (*http.Response, error) {
-							if r.Header.Get(labelPolicyHeader) == "" {
-								r.Header.Add(labelPolicyHeader, tc.policy)
-							}
-							return next.RoundTrip(r)
-						})
-					}))
+					httpCtx = withHTTPPolicy(httpCtx, tc.policy)
 				}
 				qdResp, err := ds.QueryData(httpCtx, qdReq)
 				require.NoError(t, err)
@@ -224,7 +227,7 @@ func TestStreamingAndNonStreamingReturnSameResultsWithTeamLBAC(t *testing.T) {
 				grpcCtx := config.WithGrafanaConfig(backend.WithPluginContext(context.Background(), pCtx),
 					config.NewGrafanaCfg(map[string]string{featuretoggles.EnabledFeatures: "streamingForwardTeamHeadersTempo"}))
 				if tc.policy != "" {
-					md := metadata.Pairs("x-prom-label-policy", tc.policy)
+					md := metadata.Pairs(labelPolicyMetadataKey, tc.policy)
 					if source == "incoming" {
 						grpcCtx = metadata.NewIncomingContext(grpcCtx, md)
 					} else {
@@ -301,7 +304,7 @@ func TestRunStream_PreservesOutgoingMetadata(t *testing.T) {
 
 	// Team header forwarding is off, so nothing re-adds the existing metadata and it must survive on its own.
 	ctx := backend.WithPluginContext(context.Background(), pCtx)
-	ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("x-other", "kept", "x-prom-label-policy", "service=frontend"))
+	ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("x-other", "kept", labelPolicyMetadataKey, "service=frontend"))
 	before, _ := metadata.FromOutgoingContext(ctx)
 	before = before.Copy()
 
@@ -317,10 +320,11 @@ func TestRunStream_PreservesOutgoingMetadata(t *testing.T) {
 	}, backend.NewStreamSender(&recordingPacketSender{}))
 	require.NoError(t, err)
 
-	require.Len(t, fake.grpcMD, 1)
-	require.Equal(t, []string{"kept"}, fake.grpcMD[0].Get("x-other"))
-	require.Equal(t, []string{"custom"}, fake.grpcMD[0].Get("x-custom"))
-	require.Equal(t, []string{"service=frontend"}, fake.grpcMD[0].Get("x-prom-label-policy"))
+	received := fake.receivedMD()
+	require.Len(t, received, 1)
+	require.Equal(t, []string{"kept"}, received[0].Get("x-other"))
+	require.Equal(t, []string{"custom"}, received[0].Get("x-custom"))
+	require.Equal(t, []string{"service=frontend"}, received[0].Get(labelPolicyMetadataKey))
 
 	after, _ := metadata.FromOutgoingContext(ctx)
 	require.Equal(t, before, after, "RunStream must not mutate the caller's outgoing metadata")
