@@ -54,12 +54,16 @@ jobs:
           exit 1
 
       - name: Compare the streaming and non-streaming paths
+        shell: bash
         env:
           DIFF_TEMPO_URL: http://localhost:3200
           # A fixed seed keeps the cases the same between runs; change it, or unset it, to try other queries.
           DIFF_SEED: '1'
           DIFF_CASES: '40'
-        run: go test ./pkg/tempo -run TestDifferential_GeneratedQueries -count=1 -v
+        run: |
+          go test ./pkg/tempo -run TestDifferential_GeneratedQueries_RealTempo -count=1 -v | tee "$RUNNER_TEMP/differential.log"
+          # A skipped test passes without comparing anything, so check that it ran.
+          grep -q -- '--- PASS: TestDifferential_GeneratedQueries_RealTempo' "$RUNNER_TEMP/differential.log"
 
       - name: Tempo logs
         if: failure()
