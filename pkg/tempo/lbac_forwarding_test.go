@@ -35,20 +35,20 @@ func TestTeamPolicyIsForwardedOnEveryHTTPCall(t *testing.T) {
 	calls := []struct {
 		name string
 		path string // the path Tempo is expected to receive; a trailing slash means "starts with"
-		call func()
+		call func(t *testing.T)
 	}{
-		{"trace by ID", "/api/v2/traces/", func() {
+		{"trace by ID", "/api/v2/traces/", func(*testing.T) {
 			_, _ = d.ds.QueryData(ctx, &backend.QueryDataRequest{PluginContext: d.pCtx, Queries: []backend.DataQuery{
 				{RefID: "A", QueryType: "traceId", JSON: []byte(`{"refId":"A","queryType":"traceId","query":"0000000000000001"}`)},
 			}})
 		}},
-		{"health check", "/api/echo", func() {
+		{"health check", "/api/echo", func(*testing.T) {
 			_, _ = d.ds.CheckHealth(ctx, &backend.CheckHealthRequest{PluginContext: d.pCtx})
 		}},
-		{"tags", "/api/v2/search/tags", func() {
+		{"tags", "/api/v2/search/tags", func(t *testing.T) {
 			callResource(t, ctx, d, "tags", "tags")
 		}},
-		{"tag values", "/api/v2/search/tag/service.name/values", func() {
+		{"tag values", "/api/v2/search/tag/service.name/values", func(t *testing.T) {
 			callResource(t, ctx, d, "tag-values", "tag-values?tag=service.name")
 		}},
 	}
@@ -59,7 +59,7 @@ func TestTeamPolicyIsForwardedOnEveryHTTPCall(t *testing.T) {
 			policies = map[string][]string{}
 			mu.Unlock()
 
-			c.call()
+			c.call(t)
 
 			mu.Lock()
 			defer mu.Unlock()

@@ -202,7 +202,7 @@ func TestStreamingAndNonStreamingReturnSameResultsWithTeamLBAC(t *testing.T) {
 				}
 				tr := backend.TimeRange{From: time.Unix(0, 0), To: time.Unix(10, 0)}
 
-				// Non-streaming: QueryData -> HTTP. The middleware below stands in for the SDK's header middleware
+				// Non-streaming: QueryData -> HTTP. withHTTPPolicy stands in for the SDK's header middleware
 				// (backend/http_headers.go), which adds a forwarded header only if the request doesn't have it yet.
 				qdReq := &backend.QueryDataRequest{
 					PluginContext: pCtx,

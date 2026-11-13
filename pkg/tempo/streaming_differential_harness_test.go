@@ -607,8 +607,8 @@ func TestDifferential_DatasourceHeaderWinsOverTeamPolicy(t *testing.T) {
 	require.NoError(t, httpResp.Error)
 	d.runStream(t, SearchPathPrefix+"precedence", streamData(t, map[string]any{"query": "{}"}), "service=frontend")
 
-	require.Equal(t, "datasource-policy", p.only(t, "http").Hdr["X-Prom-Label-Policy"])
-	require.Equal(t, "datasource-policy", p.only(t, "grpc").Hdr["X-Prom-Label-Policy"])
+	require.Equal(t, "datasource-policy", p.only(t, "http").Hdr[labelPolicyHeader])
+	require.Equal(t, "datasource-policy", p.only(t, "grpc").Hdr[labelPolicyHeader])
 }
 
 // With no limit, spans per span set, step or exemplars in the query, both paths must send the same (absent) values.
