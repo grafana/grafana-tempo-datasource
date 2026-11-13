@@ -48,6 +48,8 @@ export function doTempoSearchStreaming(
     .getStream<MutableDataFrame>({
       scope: LiveChannelScope.DataSource,
       stream: ds.uid,
+      // Grafana 12.3 reads `namespace` instead of `stream`; later versions ignore it.
+      namespace: ds.uid,
       path: `search/${getLiveStreamKey()}`,
       data: {
         ...query,
@@ -125,6 +127,7 @@ export function doTempoMetricsStreaming(
     .getStream<MutableDataFrame>({
       scope: LiveChannelScope.DataSource,
       stream: ds.uid,
+      namespace: ds.uid,
       path: `metrics/${key}`,
       data: {
         ...query,
