@@ -39,9 +39,11 @@ If you can state exactly what the plugin should send, put the test in the fake-T
 
 The tests work around these instead of failing on them. The generated test logs them as `known gap`.
 
-- **Metrics time ranges.** The HTTP path truncates them to whole seconds, streaming sends nanoseconds, so a range with a sub-second part (which is what Grafana sends) can give slightly different values. The fake-Tempo and e2e tests use whole-second ranges.
-- **Several span sets.** For a grouped search (`| by(...)`) Tempo sends the deprecated `spanSet` (the first group) and `spanSets` (all of them). The frontend builds the streamed table from `spanSets`, the Go code of the HTTP path from `spanSet` when it is present, so the HTTP table shows only the first group.
+- **Metrics time ranges** ([#312](https://github.com/grafana/grafana-tempo-datasource/issues/312)). The HTTP path truncates them to whole seconds, streaming sends nanoseconds, so a range with a sub-second part (which is what Grafana sends) can give slightly different values. The fake-Tempo and e2e tests use whole-second ranges.
+- **Several span sets** ([#314](https://github.com/grafana/grafana-tempo-datasource/issues/314)). For a grouped search (`| by(...)`) Tempo sends the deprecated `spanSet` (the first group) and `spanSets` (all of them). The frontend builds the streamed table from `spanSets`, the Go code of the HTTP path from `spanSet` when it is present, so the HTTP table shows only the first group.
 - **Forwarded request headers.** Grafana does not apply its OAuth token and cookies middlewares to streams, so OAuth passthrough and cookies only reach Tempo over HTTP. This is a Grafana limitation, not a plugin one.
+
+A related bug the generated test does not reach: a span attribute that is an array makes the HTTP table builder panic while streaming returns the trace ([#315](https://github.com/grafana/grafana-tempo-datasource/issues/315)). The demo data has no array attributes, so it was found by sending one span to Tempo by hand. Extend the generators, or the demo data, when you learn of a shape the demo traces lack.
 
 ### Reading a failure of the real-Tempo test
 
