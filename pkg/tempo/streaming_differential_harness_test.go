@@ -68,6 +68,12 @@ func (p *diffTempo) record(transport string, r diffRecord) {
 	p.rec[transport] = append(p.rec[transport], r)
 }
 
+func (p *diffTempo) count(transport string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.rec[transport])
+}
+
 func (p *diffTempo) only(t *testing.T, transport string) diffRecord {
 	t.Helper()
 	p.mu.Lock()
@@ -116,8 +122,13 @@ func (p *diffTempo) handleHTTP(t *testing.T) http.Handler {
 			String() string
 			ProtoMessage()
 		})
-		require.True(t, ok)
-		require.NoError(t, (&jsonpb.Marshaler{}).Marshal(w, m))
+		if !ok {
+			t.Errorf("response of type %T is not a proto message", v)
+			return
+		}
+		if err := (&jsonpb.Marshaler{}).Marshal(w, m); err != nil {
+			t.Errorf("marshal response: %v", err)
+		}
 	}
 
 	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +206,14 @@ func (s *diffGRPC) MetricsQueryRange(req *tempopb.QueryRangeRequest, srv tempopb
 	if req.Query == diffFailQuery {
 		return grpcstatus.Error(grpccodes.InvalidArgument, "bad query")
 	}
-	return srv.Send(rangeResponse(hdr["X-Prom-Label-Policy"]))
+	// Like Tempo, each message carries the accumulated series.
+	resp := rangeResponse(hdr["X-Prom-Label-Policy"])
+	for i := 1; i < len(resp.Series); i++ {
+		if err := srv.Send(&tempopb.QueryRangeResponse{Series: resp.Series[:i], Metrics: resp.Metrics}); err != nil {
+			return err
+		}
+	}
+	return srv.Send(resp)
 }
 
 func (s *diffGRPC) MetricsQueryInstant(req *tempopb.QueryInstantRequest, srv tempopb.StreamingQuerier_MetricsQueryInstantServer) error {
@@ -206,7 +224,13 @@ func (s *diffGRPC) MetricsQueryInstant(req *tempopb.QueryInstantRequest, srv tem
 	if req.Query == diffFailQuery {
 		return grpcstatus.Error(grpccodes.InvalidArgument, "bad query")
 	}
-	return srv.Send(instantResponse(hdr["X-Prom-Label-Policy"]))
+	resp := instantResponse(hdr["X-Prom-Label-Policy"])
+	for i := 1; i < len(resp.Series); i++ {
+		if err := srv.Send(&tempopb.QueryInstantResponse{Series: resp.Series[:i], Metrics: resp.Metrics}); err != nil {
+			return err
+		}
+	}
+	return srv.Send(resp)
 }
 
 // newDiffTempo starts one TLS server that serves HTTP and gRPC on the same address.
@@ -227,6 +251,7 @@ func newDiffTempo(t *testing.T) *diffTempo {
 	srv.EnableHTTP2 = true
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
+	t.Cleanup(grpcSrv.Stop)
 	p.URL = srv.URL
 	p.close = srv.Close
 	return p
@@ -302,8 +327,15 @@ func (d diffDS) runHTTP(t *testing.T, queryJSON string, policy string) backend.D
 	return resp.Responses["A"]
 }
 
-// runStream runs the query over the streaming path and returns the packets sent to the frontend and the error, if any.
+// runStream runs the query over the streaming path, with the policy in the incoming gRPC metadata, and returns the
+// packets sent to the frontend.
 func (d diffDS) runStream(t *testing.T, path, dataJSON, policy string) []json.RawMessage {
+	t.Helper()
+	return d.runStreamFrom(t, path, dataJSON, policy, "incoming")
+}
+
+// runStreamFrom is runStream with the policy in the "incoming" or the "outgoing" gRPC metadata of the context.
+func (d diffDS) runStreamFrom(t *testing.T, path, dataJSON, policy, source string) []json.RawMessage {
 	t.Helper()
 	ctx := config.WithGrafanaConfig(backend.WithPluginContext(context.Background(), d.pCtx),
 		config.NewGrafanaCfg(map[string]string{featuretoggles.EnabledFeatures: "streamingForwardTeamHeadersTempo"}))
@@ -312,7 +344,12 @@ func (d diffDS) runStream(t *testing.T, path, dataJSON, policy string) []json.Ra
 		for _, v := range strings.Split(policy, "|") {
 			pairs = append(pairs, "x-prom-label-policy", v)
 		}
-		ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(pairs...))
+		md := metadata.Pairs(pairs...)
+		if source == "outgoing" {
+			ctx = metadata.NewOutgoingContext(ctx, md)
+		} else {
+			ctx = metadata.NewIncomingContext(ctx, md)
+		}
 	}
 	packets := &recordingPacketSender{}
 	require.NoError(t, d.ds.RunStream(ctx, &backend.RunStreamRequest{PluginContext: d.pCtx, Path: path, Data: []byte(dataJSON)}, backend.NewStreamSender(packets)))
@@ -322,8 +359,11 @@ func (d diffDS) runStream(t *testing.T, path, dataJSON, policy string) []json.Ra
 // streamData builds the payload the frontend sends over Grafana Live: the query fields plus the time range.
 func streamData(t *testing.T, query map[string]any) string {
 	t.Helper()
-	query["timeRange"] = map[string]any{"from": diffRange.From.Format(time.RFC3339), "to": diffRange.To.Format(time.RFC3339)}
-	b, err := json.Marshal(query)
+	withRange := map[string]any{"timeRange": map[string]any{"from": diffRange.From.Format(time.RFC3339), "to": diffRange.To.Format(time.RFC3339)}}
+	for k, v := range query {
+		withRange[k] = v
+	}
+	b, err := json.Marshal(withRange)
 	require.NoError(t, err)
 	return string(b)
 }
@@ -445,28 +485,31 @@ func TestDifferential_RequestsHeadersAndResults(t *testing.T) {
 		})
 	}
 
+	// The policy reaches the plugin as incoming or as outgoing gRPC metadata, depending on how Grafana calls it.
 	for _, kind := range []string{"range", "instant"} {
-		for _, policy := range policies {
-			t.Run("metrics-"+kind+"/policy="+policy, func(t *testing.T) {
-				p := newDiffTempo(t)
-				d := newDiffDS(t, p)
+		for _, source := range []string{"incoming", "outgoing"} {
+			for _, policy := range policies {
+				t.Run("metrics-"+kind+"/"+source+"/policy="+policy, func(t *testing.T) {
+					p := newDiffTempo(t)
+					d := newDiffDS(t, p)
 
-				httpQuery := map[string]any{"refId": "A", "queryType": "traceql", "query": metricsDiffQuery, "metricsQueryType": kind}
-				streamQuery := map[string]any{"query": metricsDiffQuery, "metricsQueryType": kind}
-				if kind == "range" {
-					httpQuery["step"], httpQuery["exemplars"] = "60s", 100
-					streamQuery["step"], streamQuery["exemplars"] = int64(60*time.Second), 100
-				}
-				httpJSON, err := json.Marshal(httpQuery)
-				require.NoError(t, err)
+					httpQuery := map[string]any{"refId": "A", "queryType": "traceql", "query": metricsDiffQuery, "metricsQueryType": kind}
+					streamQuery := map[string]any{"query": metricsDiffQuery, "metricsQueryType": kind}
+					if kind == "range" {
+						httpQuery["step"], httpQuery["exemplars"] = "60s", 100
+						streamQuery["step"], streamQuery["exemplars"] = int64(60*time.Second), 100
+					}
+					httpJSON, err := json.Marshal(httpQuery)
+					require.NoError(t, err)
 
-				httpResp := d.runHTTP(t, string(httpJSON), policy)
-				require.NoError(t, httpResp.Error)
-				packets := d.runStream(t, MetricsPathPrefix+"differential", streamData(t, streamQuery), policy)
+					httpResp := d.runHTTP(t, string(httpJSON), policy)
+					require.NoError(t, httpResp.Error)
+					packets := d.runStreamFrom(t, MetricsPathPrefix+"differential", streamData(t, streamQuery), policy, source)
 
-				assertSameRequestAndHeaders(t, p, policy)
-				require.Equal(t, summarize(t, httpResp.Frames), summarize(t, streamedFrames(t, packets)), "series differ between HTTP and streaming")
-			})
+					assertSameRequestAndHeaders(t, p, policy)
+					require.Equal(t, summarize(t, httpResp.Frames), summarize(t, streamedFrames(t, packets)), "series differ between HTTP and streaming")
+				})
+			}
 		}
 	}
 }
@@ -502,8 +545,6 @@ func TestDifferential_QueryErrors(t *testing.T) {
 	}
 }
 
-// A policy with several values (one per team): HTTP sends one header line per value, the streaming path joins them with
-// a comma. Joined the same way, Tempo has to see the same value.
 // The streamed traces carry the span sets Tempo sent: the frontend builds the span tables from them, while the HTTP path
 // builds the tables in Go, so the two cannot be compared with each other.
 func TestDifferential_StreamedSearchKeepsSpanSets(t *testing.T) {
@@ -525,6 +566,8 @@ func TestDifferential_StreamedSearchKeepsSpanSets(t *testing.T) {
 	require.Equal(t, want, streamedSpanIDs(t, packets))
 }
 
+// A policy with several values (one per team): HTTP sends one header line per value, the streaming path joins them with
+// a comma. Joined the same way, Tempo has to see the same value.
 func TestDifferential_MultiValuePolicy(t *testing.T) {
 	p := newDiffTempo(t)
 	d := newDiffDS(t, p)
@@ -539,7 +582,9 @@ func TestDifferential_MultiValuePolicy(t *testing.T) {
 	require.Equal(t, h.Hdr["X-Prom-Label-Policy"], g.Hdr["X-Prom-Label-Policy"])
 }
 
-// A header configured on the datasource wins over the policy Grafana adds, on both paths.
+// A header configured on the datasource wins over the policy Grafana adds, on both paths. This pins the current,
+// documented behaviour (the gRPC interceptor sets datasource headers last, and the SDK adds the policy only when the
+// header is absent), not a product requirement: a datasource header named like the policy header overrides it.
 func TestDifferential_DatasourceHeaderWinsOverTeamPolicy(t *testing.T) {
 	p := newDiffTempo(t)
 	d := newDiffDSWithPolicy(t, p, "datasource-policy")
@@ -604,8 +649,8 @@ func TestDifferential_EmptyQueryRejected(t *testing.T) {
 			}
 			require.Error(t, d.runHTTP(t, httpJSON, "").Error)
 			require.NotEmpty(t, lastPacketError(t, d.runStream(t, path, streamData(t, streamQuery), "")))
-			require.Empty(t, p.rec["http"], "HTTP request reached Tempo")
-			require.Empty(t, p.rec["grpc"], "gRPC request reached Tempo")
+			require.Zero(t, p.count("http"), "HTTP request reached Tempo")
+			require.Zero(t, p.count("grpc"), "gRPC request reached Tempo")
 		})
 	}
 }

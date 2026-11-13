@@ -73,7 +73,7 @@ func TestTeamPolicyIsForwardedOnEveryHTTPCall(t *testing.T) {
 					require.Equal(t, policy, g, "policy header received on %s", path)
 				}
 			}
-			require.NotZero(t, matched, "Tempo received no request for %q; paths: %v", c.path, keys(policies))
+			require.NotZero(t, matched, "Tempo received no request for %q; paths: %v", c.path, sortedKeys(policies))
 		})
 	}
 }
@@ -112,7 +112,7 @@ func callResource(t *testing.T, ctx context.Context, d diffDS, path, url string)
 	require.NoError(t, err)
 }
 
-func keys(m map[string][]string) []string {
+func sortedKeys(m map[string][]string) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)
@@ -133,6 +133,7 @@ func TestConcurrentRequestsKeepTheirOwnPolicy(t *testing.T) {
 	type outcome struct {
 		policy       string
 		http, stream []string
+		done         bool // set when both requests ran to the end: a failed require ends a goroutine early
 	}
 	outcomes := make([]outcome, perPolicy*len(policies))
 	var wg sync.WaitGroup
@@ -143,12 +144,13 @@ func TestConcurrentRequestsKeepTheirOwnPolicy(t *testing.T) {
 			policy := policies[i%len(policies)]
 			httpResp := d.runHTTP(t, `{"refId":"A","queryType":"traceql","query":"{}","limit":7,"spss":5,"tableType":"traces"}`, policy)
 			packets := d.runStream(t, SearchPathPrefix+"concurrent", streamData(t, map[string]any{"query": "{}", "limit": 7, "spss": 5, "SpansPerSpanSet": 5}), policy)
-			outcomes[i] = outcome{policy: policy, http: sortedIDs(httpTraces(t, httpResp.Frames)), stream: sortedIDs(streamedTraces(t, packets))}
+			outcomes[i] = outcome{policy: policy, http: sortedTraceIDs(httpTraces(t, httpResp.Frames)), stream: sortedTraceIDs(streamedTraces(t, packets)), done: true}
 		}()
 	}
 	wg.Wait()
 
-	for _, o := range outcomes {
+	for i, o := range outcomes {
+		require.True(t, o.done, "request %d did not finish, see the failure logged above", i)
 		var want []string
 		for _, tr := range filterByPolicy(o.policy) {
 			want = append(want, tr.TraceID)
@@ -171,7 +173,7 @@ func TestConcurrentRequestsKeepTheirOwnPolicy(t *testing.T) {
 	}
 }
 
-func sortedIDs(traces []diffTrace) []string {
+func sortedTraceIDs(traces []diffTrace) []string {
 	ids := make([]string, 0, len(traces))
 	for _, tr := range traces {
 		ids = append(ids, tr.ID)
