@@ -149,6 +149,27 @@ func TestTransformTraceSearchResponse_DurationBelowOneMsIsNil(t *testing.T) {
 	assert.Nil(t, frames[0].Fields[4].At(0))
 }
 
+func TestTransformTraceSearchResponse_DurationOfOneMsIsKept(t *testing.T) {
+	pCtx := backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{UID: "u", Name: "n"}}
+	resp := &tempopb.SearchResponse{Traces: []*tempopb.TraceSearchMetadata{{
+		TraceID:           "test-trace-id",
+		RootServiceName:   "test-service-name",
+		RootTraceName:     "test-root-trace-name",
+		StartTimeUnixNano: 2000000,
+		DurationMs:        1,
+		SpanSet:           &tempopb.SpanSet{Spans: []*tempopb.Span{{SpanID: "span1", Name: "op", StartTimeUnixNano: 1000000, DurationNanos: 1000}}},
+	}}}
+
+	frames, err := transformTraceSearchResponse(pCtx, resp)
+	require.NoError(t, err)
+	require.Len(t, frames, 1)
+	require.Equal(t, 1, frames[0].Rows())
+	duration, ok := frames[0].Fields[4].At(0).(*float64)
+	require.True(t, ok)
+	require.NotNil(t, duration)
+	assert.Equal(t, 1.0, *duration)
+}
+
 func TestTransformTraceSearchResponse_UsesSpanSetsWhenSpanSetMissing(t *testing.T) {
 	pCtx := backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{UID: "u", Name: "n"}}
 	resp := &tempopb.SearchResponse{Traces: []*tempopb.TraceSearchMetadata{{

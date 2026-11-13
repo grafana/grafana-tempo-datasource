@@ -384,6 +384,35 @@ func streamedTraces(t *testing.T, packets []json.RawMessage) []diffTrace {
 	return out
 }
 
+// streamedSpanIDs returns, per streamed trace, the IDs of the spans in its span sets.
+func streamedSpanIDs(t *testing.T, packets []json.RawMessage) map[string][]string {
+	t.Helper()
+	require.NotEmpty(t, packets)
+	var packet data.Frame
+	require.NoError(t, json.Unmarshal(packets[len(packets)-1], &packet))
+	result, _ := packet.FieldByName("result")
+	var traces []struct {
+		TraceID  string `json:"traceID"`
+		SpanSets []struct {
+			Spans []struct {
+				SpanID string `json:"spanID"`
+			} `json:"spans"`
+		} `json:"spanSets"`
+	}
+	require.NoError(t, json.Unmarshal(result.At(0).(json.RawMessage), &traces))
+	out := map[string][]string{}
+	for _, tr := range traces {
+		ids := []string{}
+		for _, set := range tr.SpanSets {
+			for _, span := range set.Spans {
+				ids = append(ids, span.SpanID)
+			}
+		}
+		out[tr.TraceID] = ids
+	}
+	return out
+}
+
 // lastPacketError returns the error text of the last streamed packet.
 func lastPacketError(t *testing.T, packets []json.RawMessage) string {
 	t.Helper()
@@ -475,6 +504,27 @@ func TestDifferential_QueryErrors(t *testing.T) {
 
 // A policy with several values (one per team): HTTP sends one header line per value, the streaming path joins them with
 // a comma. Joined the same way, Tempo has to see the same value.
+// The streamed traces carry the span sets Tempo sent: the frontend builds the span tables from them, while the HTTP path
+// builds the tables in Go, so the two cannot be compared with each other.
+func TestDifferential_StreamedSearchKeepsSpanSets(t *testing.T) {
+	d := newDiffDS(t, newDiffTempo(t))
+
+	packets := d.runStream(t, SearchPathPrefix+"spansets", streamData(t, map[string]any{"query": "{}", "limit": 7, "spss": 5, "SpansPerSpanSet": 5}), "")
+
+	want := map[string][]string{}
+	for _, tr := range parityCorpus {
+		ids := []string{}
+		for _, set := range tr.SpanSets {
+			for _, span := range set.Spans {
+				ids = append(ids, span.SpanID)
+			}
+		}
+		want[tr.TraceID] = ids
+	}
+	require.NotEmpty(t, want["0000000000000001"], "the corpus has no span sets to compare")
+	require.Equal(t, want, streamedSpanIDs(t, packets))
+}
+
 func TestDifferential_MultiValuePolicy(t *testing.T) {
 	p := newDiffTempo(t)
 	d := newDiffDS(t, p)

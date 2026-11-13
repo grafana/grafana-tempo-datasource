@@ -39,7 +39,11 @@ type fakeTempo struct {
 }
 
 var parityCorpus = []*tempopb.TraceSearchMetadata{
-	{TraceID: "0000000000000001", RootServiceName: "frontend", RootTraceName: "GET /", StartTimeUnixNano: 3_000_000_000, DurationMs: 10},
+	{TraceID: "0000000000000001", RootServiceName: "frontend", RootTraceName: "GET /", StartTimeUnixNano: 3_000_000_000, DurationMs: 10,
+		SpanSets: []*tempopb.SpanSet{{Matched: 2, Spans: []*tempopb.Span{
+			{SpanID: "aaaaaaaaaaaaaaaa", Name: "GET /", StartTimeUnixNano: 3_000_000_000, DurationNanos: 10_000_000},
+			{SpanID: "bbbbbbbbbbbbbbbb", Name: "query", StartTimeUnixNano: 3_001_000_000, DurationNanos: 5_000_000},
+		}}}},
 	{TraceID: "0000000000000002", RootServiceName: "backend", RootTraceName: "GET /api", StartTimeUnixNano: 2_000_000_000, DurationMs: 20},
 	{TraceID: "0000000000000003", RootServiceName: "frontend", RootTraceName: "POST /login", StartTimeUnixNano: 1_000_000_000, DurationMs: 30},
 }
