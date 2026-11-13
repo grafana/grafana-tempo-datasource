@@ -95,6 +95,10 @@ npm run server
 npm run e2e
 ```
 
+## Streaming and non-streaming differential tests
+
+Search and TraceQL metrics queries reach Tempo over HTTP when streaming is off and over gRPC when it is on, and both paths must behave the same. When you change how either path builds its request, forwards headers or shapes results, run `go test -race ./pkg/...`, and the generated-query test against a real Tempo if you touch result handling. [TESTING.md](TESTING.md) explains the three layers (fake Tempo, real Tempo, end-to-end), why we need both a fake and a real Tempo, how to run each, and the known differences.
+
 ## Release
 
 You need commit access to the repository to publish a release.

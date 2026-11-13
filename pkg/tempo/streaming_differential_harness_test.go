@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -322,13 +324,18 @@ func withHTTPPolicy(ctx context.Context, policy string) context.Context {
 // runHTTP runs the query over the non-streaming path.
 func (d diffDS) runHTTP(t *testing.T, queryJSON string, policy string) backend.DataResponse {
 	t.Helper()
+	return d.runHTTPRange(t, queryJSON, policy, diffRange)
+}
+
+func (d diffDS) runHTTPRange(t *testing.T, queryJSON string, policy string, tr backend.TimeRange) backend.DataResponse {
+	t.Helper()
 	ctx := backend.WithPluginContext(context.Background(), d.pCtx)
 	if policy != "" {
 		ctx = withHTTPPolicy(ctx, policy)
 	}
 	resp, err := d.ds.QueryData(ctx, &backend.QueryDataRequest{
 		PluginContext: d.pCtx,
-		Queries:       []backend.DataQuery{{RefID: "A", QueryType: "traceql", TimeRange: diffRange, JSON: []byte(queryJSON)}},
+		Queries:       []backend.DataQuery{{RefID: "A", QueryType: "traceql", TimeRange: tr, JSON: []byte(queryJSON)}},
 	})
 	require.NoError(t, err)
 	return resp.Responses["A"]
@@ -369,7 +376,14 @@ func (d diffDS) runStreamFrom(t *testing.T, path, dataJSON, policy, source strin
 // why the span-set limit appears both as `spss` and as `SpansPerSpanSet`.
 func streamData(t *testing.T, query map[string]any) string {
 	t.Helper()
-	withRange := map[string]any{"timeRange": map[string]any{"from": diffRange.From.Format(time.RFC3339), "to": diffRange.To.Format(time.RFC3339)}}
+	return streamDataRange(t, query, diffRange)
+}
+
+// streamDataRange formats the time range like the frontend does (toISOString: UTC, millisecond precision).
+func streamDataRange(t *testing.T, query map[string]any, tr backend.TimeRange) string {
+	t.Helper()
+	const isoMillis = "2006-01-02T15:04:05.000Z"
+	withRange := map[string]any{"timeRange": map[string]any{"from": tr.From.UTC().Format(isoMillis), "to": tr.To.UTC().Format(isoMillis)}}
 	for k, v := range query {
 		withRange[k] = v
 	}
@@ -383,6 +397,19 @@ type diffTrace struct {
 	ID, Service, Name string
 	DurationMs        float64
 	StartMs           int64
+	// Spans describes the spans of each span set (see spanSignature), span sets separated by "|".
+	Spans string
+}
+
+// spanSetSignature turns the span IDs of every span set into one comparable string.
+func spanSetSignature(sets [][]string) string {
+	parts := make([]string, 0, len(sets))
+	for _, ids := range sets {
+		ids = append([]string(nil), ids...)
+		sort.Strings(ids)
+		parts = append(parts, strings.Join(ids, ","))
+	}
+	return strings.Join(parts, "|")
 }
 
 func httpTraces(t *testing.T, frames []*data.Frame) []diffTrace {
@@ -402,8 +429,134 @@ func httpTraces(t *testing.T, frames []*data.Frame) []diffTrace {
 		}
 		out = append(out, diffTrace{
 			ID: col("traceID").At(i).(string), Service: col("traceService").At(i).(string), Name: col("traceName").At(i).(string),
-			DurationMs: dur, StartMs: col("startTime").At(i).(time.Time).UnixMilli(),
+			DurationMs: dur, StartMs: col("startTime").At(i).(time.Time).UnixMilli(), Spans: nestedSpans(t, f, i),
 		})
+	}
+	return out
+}
+
+// spanSignature describes a span by everything the HTTP table and the streamed result both carry: its ID, name, start
+// (ms), duration (ns) and attributes. Attribute values are typed ("s:", "n:", "b:"), integers and doubles both numeric.
+func spanSignature(id, name string, startMs, durationNs int64, attrs map[string]string) string {
+	keys := make([]string, 0, len(attrs))
+	for k := range attrs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+attrs[k])
+	}
+	return fmt.Sprintf("%s/%s/%d/%d/%s", id, name, startMs, durationNs, strings.Join(parts, ";"))
+}
+
+func numberAttr(v float64) string { return "n:" + strconv.FormatFloat(v, 'g', -1, 64) }
+
+// tableAttr renders a dynamic column value of the HTTP span table; "" means the span has no such attribute.
+func tableAttr(v any) string {
+	rv := reflect.ValueOf(v)
+	if !rv.IsValid() || (rv.Kind() == reflect.Pointer && rv.IsNil()) {
+		return ""
+	}
+	if rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	switch rv.Kind() {
+	case reflect.String:
+		return "s:" + rv.String()
+	case reflect.Float32, reflect.Float64:
+		return numberAttr(rv.Float())
+	case reflect.Bool:
+		return fmt.Sprintf("b:%t", rv.Bool())
+	}
+	return fmt.Sprintf("?:%v", rv.Interface())
+}
+
+// nestedSpans describes the spans of the span sets nested in a row of the traces table.
+func nestedSpans(t *testing.T, f *data.Frame, row int) string {
+	t.Helper()
+	nested, _ := f.FieldByName("nested")
+	if nested == nil {
+		return ""
+	}
+	raw, _ := nested.At(row).(json.RawMessage)
+	if len(raw) == 0 {
+		return ""
+	}
+	var frames []json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &frames))
+	fixed := map[string]bool{"traceIdHidden": true, "spanID": true, "time": true, "name": true, "duration": true}
+	var sets [][]string
+	for _, fr := range frames {
+		var sub data.Frame
+		require.NoError(t, json.Unmarshal(fr, &sub))
+		col := func(name string) *data.Field {
+			fld, _ := sub.FieldByName(name)
+			require.NotNil(t, fld, name)
+			return fld
+		}
+		var set []string
+		for r := 0; r < sub.Rows(); r++ {
+			attrs := map[string]string{}
+			for _, fld := range sub.Fields {
+				if fixed[fld.Name] {
+					continue
+				}
+				if v := tableAttr(fld.At(r)); v != "" {
+					attrs[fld.Name] = v
+				}
+			}
+			set = append(set, spanSignature(col("spanID").At(r).(string), col("name").At(r).(string),
+				col("time").At(r).(time.Time).UnixMilli(), int64(col("duration").At(r).(float64)), attrs))
+		}
+		sets = append(sets, set)
+	}
+	return spanSetSignature(sets)
+}
+
+// streamedAttribute is a span attribute as the plugin marshals it: the value sits in a oneof wrapper.
+type streamedAttribute struct {
+	Key   string `json:"key"`
+	Value struct {
+		Value struct {
+			String *string  `json:"string_value"`
+			Int    *int64   `json:"int_value"`
+			Double *float64 `json:"double_value"`
+			Bool   *bool    `json:"bool_value"`
+		} `json:"Value"`
+	} `json:"value"`
+}
+
+type streamedSpanSet struct {
+	Attributes []streamedAttribute `json:"attributes"`
+	Spans      []struct {
+		SpanID            string              `json:"spanID"`
+		Name              string              `json:"name"`
+		StartTimeUnixNano uint64              `json:"startTimeUnixNano"`
+		DurationNanos     uint64              `json:"durationNanos"`
+		Attributes        []streamedAttribute `json:"attributes"`
+	} `json:"spans"`
+}
+
+// signatures describes the spans of the set. The HTTP table puts the attributes of the span set on every span first and
+// lets the span's own attributes override them.
+func (set streamedSpanSet) signatures() []string {
+	out := []string{}
+	for _, sp := range set.Spans {
+		attrs := map[string]string{}
+		for _, a := range append(append([]streamedAttribute(nil), set.Attributes...), sp.Attributes...) {
+			switch v := a.Value.Value; {
+			case v.String != nil:
+				attrs[a.Key] = "s:" + *v.String
+			case v.Int != nil:
+				attrs[a.Key] = numberAttr(float64(*v.Int))
+			case v.Double != nil:
+				attrs[a.Key] = numberAttr(*v.Double)
+			case v.Bool != nil:
+				attrs[a.Key] = fmt.Sprintf("b:%t", *v.Bool)
+			}
+		}
+		out = append(out, spanSignature(sp.SpanID, sp.Name, int64(sp.StartTimeUnixNano/1_000_000), int64(sp.DurationNanos), attrs))
 	}
 	return out
 }
@@ -418,18 +571,33 @@ func streamedTraces(t *testing.T, packets []json.RawMessage) []diffTrace {
 	result, _ := packet.FieldByName("result")
 	raw := result.At(0).(json.RawMessage)
 	var traces []struct {
-		TraceID           string  `json:"traceID"`
-		RootServiceName   string  `json:"rootServiceName"`
-		RootTraceName     string  `json:"rootTraceName"`
-		DurationMs        float64 `json:"durationMs"`
-		StartTimeUnixNano uint64  `json:"startTimeUnixNano"`
+		TraceID           string            `json:"traceID"`
+		RootServiceName   string            `json:"rootServiceName"`
+		RootTraceName     string            `json:"rootTraceName"`
+		DurationMs        float64           `json:"durationMs"`
+		StartTimeUnixNano uint64            `json:"startTimeUnixNano"`
+		SpanSet           *streamedSpanSet  `json:"spanSet"`
+		SpanSets          []streamedSpanSet `json:"spanSets"`
 	}
 	if len(raw) > 0 {
 		require.NoError(t, json.Unmarshal(raw, &traces))
 	}
 	var out []diffTrace
 	for _, tr := range traces {
-		out = append(out, diffTrace{ID: tr.TraceID, Service: tr.RootServiceName, Name: tr.RootTraceName, DurationMs: tr.DurationMs, StartMs: int64(tr.StartTimeUnixNano / 1_000_000)})
+		// The frontend builds the tables from `spanSets` and only falls back to the deprecated `spanSet`
+		// (src/resultTransformer.ts), so the streamed side is read the same way.
+		var sets [][]string
+		if len(tr.SpanSets) > 0 {
+			for _, set := range tr.SpanSets {
+				sets = append(sets, set.signatures())
+			}
+		} else if tr.SpanSet != nil {
+			sets = append(sets, tr.SpanSet.signatures())
+		}
+		out = append(out, diffTrace{
+			ID: tr.TraceID, Service: tr.RootServiceName, Name: tr.RootTraceName, DurationMs: tr.DurationMs,
+			StartMs: int64(tr.StartTimeUnixNano / 1_000_000), Spans: spanSetSignature(sets),
+		})
 	}
 	return out
 }

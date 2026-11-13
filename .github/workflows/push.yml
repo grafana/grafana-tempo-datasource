@@ -20,6 +20,55 @@ jobs:
       plugin-version-suffix: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
       run-playwright: true
 
+  streaming-differential:
+    name: Streaming differential tests (real Tempo)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Start Tempo and the trace generators
+        run: docker compose up -d tempo db app loadgen
+
+      - name: Wait for traces
+        run: |
+          # The tests query windows that ended 90 to 240 seconds ago, so wait until Tempo has traces from 4 to 5 minutes ago.
+          for i in $(seq 1 90); do
+            now=$(date +%s)
+            count=$(curl -s "http://localhost:3200/api/search?q=%7B%7D&limit=100&start=$((now - 300))&end=$((now - 240))" | jq '.traces | length' 2>/dev/null || echo 0)
+            echo "traces from 4 to 5 minutes ago: ${count}"
+            [ "${count}" -ge 20 ] && exit 0
+            sleep 10
+          done
+          echo "Tempo has no traces after 15 minutes" >&2
+          exit 1
+
+      - name: Compare the streaming and non-streaming paths
+        shell: bash
+        env:
+          DIFF_TEMPO_URL: http://localhost:3200
+          # A fixed seed keeps the cases the same between runs; change it, or unset it, to try other queries.
+          DIFF_SEED: '1'
+          DIFF_CASES: '40'
+        run: |
+          go test ./pkg/tempo -run TestDifferential_GeneratedQueries_RealTempo -count=1 -v | tee "$RUNNER_TEMP/differential.log"
+          # A skipped test passes without comparing anything, so check that it ran.
+          grep -q -- '--- PASS: TestDifferential_GeneratedQueries_RealTempo' "$RUNNER_TEMP/differential.log"
+
+      - name: Tempo logs
+        if: failure()
+        run: docker compose logs --tail 200 tempo app loadgen
+
   publish-and-deploy:
     if: github.ref == 'refs/heads/main'
     uses: grafana/data-sources-ci-workflows/.github/workflows/cd-dev.yml@main
