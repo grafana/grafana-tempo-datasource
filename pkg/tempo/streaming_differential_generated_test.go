@@ -282,7 +282,7 @@ func TestDifferential_GeneratedQueries_RealTempo(t *testing.T) {
 				if diff == "" {
 					if spanSetGap {
 						stats.spanSetGap++
-						t.Logf("known gap (several span sets): the HTTP table keeps only the first span set when Tempo sends `spanSet`, streaming keeps all: %s", c)
+						t.Logf("known gap (several span sets, #314): the HTTP table keeps only the first span set when Tempo sends `spanSet`, streaming keeps all: %s", c)
 						return
 					}
 					stats.compared++
