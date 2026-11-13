@@ -65,7 +65,7 @@ func TestTeamPolicyIsForwardedOnEveryHTTPCall(t *testing.T) {
 			defer mu.Unlock()
 			var matched int
 			for path, got := range policies {
-				if path != c.path && !(strings.HasSuffix(c.path, "/") && strings.HasPrefix(path, c.path)) {
+				if !matchesPath(path, c.path) {
 					continue
 				}
 				for _, g := range got {
@@ -106,6 +106,14 @@ func TestTeamPolicyInResourceRequestHeadersIsForwarded(t *testing.T) {
 	for _, g := range got {
 		require.Equal(t, policy, g)
 	}
+}
+
+// matchesPath reports whether path is the wanted path, or starts with it when the wanted path ends with a slash.
+func matchesPath(path, want string) bool {
+	if strings.HasSuffix(want, "/") {
+		return strings.HasPrefix(path, want)
+	}
+	return path == want
 }
 
 func callResource(t *testing.T, ctx context.Context, d diffDS, path, url string) {
