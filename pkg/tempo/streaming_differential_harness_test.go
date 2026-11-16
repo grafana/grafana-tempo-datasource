@@ -319,9 +319,9 @@ func withHTTPPolicy(ctx context.Context, policy string) context.Context {
 	}))
 }
 
-// runHTTP runs the query over the non-streaming path.
-func (d diffDS) runHTTP(t *testing.T, queryJSON string, policy string) backend.DataResponse {
-	t.Helper()
+// queryHTTP runs the query over the non-streaming path and returns the error instead of failing the test, so it can be
+// called from a goroutine: FailNow must run on the goroutine of the test.
+func (d diffDS) queryHTTP(queryJSON string, policy string) (backend.DataResponse, error) {
 	ctx := backend.WithPluginContext(context.Background(), d.pCtx)
 	if policy != "" {
 		ctx = withHTTPPolicy(ctx, policy)
@@ -330,8 +330,18 @@ func (d diffDS) runHTTP(t *testing.T, queryJSON string, policy string) backend.D
 		PluginContext: d.pCtx,
 		Queries:       []backend.DataQuery{{RefID: "A", QueryType: "traceql", TimeRange: diffRange, JSON: []byte(queryJSON)}},
 	})
+	if err != nil {
+		return backend.DataResponse{}, err
+	}
+	return resp.Responses["A"], nil
+}
+
+// runHTTP runs the query over the non-streaming path.
+func (d diffDS) runHTTP(t *testing.T, queryJSON string, policy string) backend.DataResponse {
+	t.Helper()
+	resp, err := d.queryHTTP(queryJSON, policy)
 	require.NoError(t, err)
-	return resp.Responses["A"]
+	return resp
 }
 
 // runStream runs the query over the streaming path, with the policy in the incoming gRPC metadata, and returns the
@@ -341,9 +351,9 @@ func (d diffDS) runStream(t *testing.T, path, dataJSON, policy string) []json.Ra
 	return d.runStreamFrom(t, path, dataJSON, policy, "incoming")
 }
 
-// runStreamFrom is runStream with the policy in the "incoming" or the "outgoing" gRPC metadata of the context.
-func (d diffDS) runStreamFrom(t *testing.T, path, dataJSON, policy, source string) []json.RawMessage {
-	t.Helper()
+// streamPackets runs the query over the streaming path with the policy in the "incoming" or the "outgoing" gRPC metadata
+// of the context, and returns the error instead of failing the test (see queryHTTP).
+func (d diffDS) streamPackets(path, dataJSON, policy, source string) ([]json.RawMessage, error) {
 	ctx := config.WithGrafanaConfig(backend.WithPluginContext(context.Background(), d.pCtx),
 		config.NewGrafanaCfg(map[string]string{featuretoggles.EnabledFeatures: "streamingForwardTeamHeadersTempo"}))
 	if policy != "" {
@@ -359,8 +369,18 @@ func (d diffDS) runStreamFrom(t *testing.T, path, dataJSON, policy, source strin
 		}
 	}
 	packets := &recordingPacketSender{}
-	require.NoError(t, d.ds.RunStream(ctx, &backend.RunStreamRequest{PluginContext: d.pCtx, Path: path, Data: []byte(dataJSON)}, backend.NewStreamSender(packets)))
-	return packets.packets
+	if err := d.ds.RunStream(ctx, &backend.RunStreamRequest{PluginContext: d.pCtx, Path: path, Data: []byte(dataJSON)}, backend.NewStreamSender(packets)); err != nil {
+		return nil, err
+	}
+	return packets.packets, nil
+}
+
+// runStreamFrom is runStream with the policy in the "incoming" or the "outgoing" gRPC metadata of the context.
+func (d diffDS) runStreamFrom(t *testing.T, path, dataJSON, policy, source string) []json.RawMessage {
+	t.Helper()
+	packets, err := d.streamPackets(path, dataJSON, policy, source)
+	require.NoError(t, err)
+	return packets
 }
 
 // streamData builds the payload the frontend sends over Grafana Live: the query fields plus the time range.

@@ -2,6 +2,7 @@ package tempo
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -141,11 +142,16 @@ func TestConcurrentRequestsKeepTheirOwnPolicy(t *testing.T) {
 	const perPolicy = 12
 	policies := []string{"service=frontend", "service=backend", ""}
 
+	// The goroutines only run the requests and keep what came back, errors included: FailNow must run on the goroutine of
+	// the test, so every assertion is made after wg.Wait().
 	type outcome struct {
-		policy       string
-		http, stream []string
-		done         bool // set when both requests ran to the end: a failed require ends a goroutine early
+		policy             string
+		httpResp           backend.DataResponse
+		packets            []json.RawMessage
+		httpErr, streamErr error
 	}
+	const httpQuery = `{"refId":"A","queryType":"traceql","query":"{}","limit":7,"spss":5,"tableType":"traces"}`
+	streamQuery := streamData(t, map[string]any{"query": "{}", "limit": 7, "spss": 5, "SpansPerSpanSet": 5})
 	outcomes := make([]outcome, perPolicy*len(policies))
 	var wg sync.WaitGroup
 	for i := range outcomes {
@@ -153,22 +159,24 @@ func TestConcurrentRequestsKeepTheirOwnPolicy(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			policy := policies[i%len(policies)]
-			httpResp := d.runHTTP(t, `{"refId":"A","queryType":"traceql","query":"{}","limit":7,"spss":5,"tableType":"traces"}`, policy)
-			packets := d.runStream(t, SearchPathPrefix+"concurrent", streamData(t, map[string]any{"query": "{}", "limit": 7, "spss": 5, "SpansPerSpanSet": 5}), policy)
-			outcomes[i] = outcome{policy: policy, http: sortedTraceIDs(httpTraces(t, httpResp.Frames)), stream: sortedTraceIDs(streamedTraces(t, packets)), done: true}
+			o := outcome{policy: policy}
+			o.httpResp, o.httpErr = d.queryHTTP(httpQuery, policy)
+			o.packets, o.streamErr = d.streamPackets(SearchPathPrefix+"concurrent", streamQuery, policy, "incoming")
+			outcomes[i] = o
 		}()
 	}
 	wg.Wait()
 
 	for i, o := range outcomes {
-		require.True(t, o.done, "request %d did not finish, see the failure logged above", i)
+		require.NoError(t, o.httpErr, "request %d over HTTP, policy %q", i, o.policy)
+		require.NoError(t, o.streamErr, "request %d over gRPC, policy %q", i, o.policy)
 		var want []string
 		for _, tr := range filterByPolicy(o.policy) {
 			want = append(want, tr.TraceID)
 		}
 		sort.Strings(want)
-		require.Equal(t, want, o.http, "HTTP traces for policy %q", o.policy)
-		require.Equal(t, want, o.stream, "streamed traces for policy %q", o.policy)
+		require.Equal(t, want, sortedTraceIDs(httpTraces(t, o.httpResp.Frames)), "HTTP traces for policy %q", o.policy)
+		require.Equal(t, want, sortedTraceIDs(streamedTraces(t, o.packets)), "streamed traces for policy %q", o.policy)
 	}
 
 	for _, transport := range []string{"http", "grpc"} {
