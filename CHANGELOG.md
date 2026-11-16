@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Require datasource query permission for tag metadata proxy requests ([#316](https://github.com/grafana/grafana-tempo-datasource/pull/316))
+- Add routes to plugin.json ([#316](https://github.com/grafana/grafana-tempo-datasource/pull/316))
 
 ## 13.4.2
 
