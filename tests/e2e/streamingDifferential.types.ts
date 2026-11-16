@@ -17,10 +17,6 @@ export type QueryRun = { uid: string; end: Date; windowMs: number; query: Record
 export const STREAMING_UID = 'tempo';
 export const NON_STREAMING_UID = 'tempo-no-streaming';
 
-// Streaming does not start on Grafana 12.3.x: the plugin opens the Live channel with `stream`, which 12.3 does not know
-// (it expects `namespace`), so the page sends no query at all.
-export const MIN_GRAFANA_VERSION = '12.4.0';
-
 // Closed windows that ended 90 seconds ago keep the result sets stable while the TNS apps keep emitting data. They are
 // short so they stay clear of Tempo's block retention, and end on a whole second because the HTTP path truncates the
 // time range to seconds while streaming doesn't. The metrics window contains the search window.
