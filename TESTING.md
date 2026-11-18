@@ -37,7 +37,7 @@ If you can state exactly what the plugin should send, put the test in the fake-T
 
 ### Known differences
 
-The tests work around these instead of failing on them. The generated test logs them as `known gap`.
+The tests work around these instead of failing on them. The generated test logs them as `known gap`. `pkg/tempo/streaming_differential_known_gaps_test.go` asserts that each gap still exists, so when one is fixed that test fails and says which workaround to remove.
 
 - **Metrics time ranges** ([#312](https://github.com/grafana/grafana-tempo-datasource/issues/312)). The HTTP path truncates them to whole seconds, streaming sends nanoseconds, so a range with a sub-second part (which is what Grafana sends) can give slightly different values. The fake-Tempo and e2e tests use whole-second ranges.
 - **Several span sets** ([#314](https://github.com/grafana/grafana-tempo-datasource/issues/314)). For a grouped search (`| by(...)`) Tempo sends the deprecated `spanSet` (the first group) and `spanSets` (all of them). The frontend builds the streamed table from `spanSets`, the Go code of the HTTP path from `spanSet` when it is present, so the HTTP table shows only the first group.

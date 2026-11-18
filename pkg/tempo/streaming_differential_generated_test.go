@@ -234,6 +234,116 @@ func envInt(name string, def int) int {
 	return def
 }
 
+// caseOutcome says how a generated case ended.
+type caseOutcome int
+
+const (
+	outcomeEqual        caseOutcome = iota // both paths returned the same
+	outcomeBothFailed                      // both paths rejected the query
+	outcomeSpanSetGap                      // they differ only in the span sets after the first one (#314)
+	outcomeTimeRangeGap                    // they differ because of the sub-second time range (#312)
+)
+
+type caseResult struct {
+	outcome caseOutcome
+	hasData bool // the response holds traces or series
+}
+
+// generateCases returns n cases of a kind, followed by the invalid queries, which run on every seed.
+func generateCases(r *rand.Rand, kind string, n int) []diffCase {
+	cases := make([]diffCase, 0, n+len(diffInvalidSearch))
+	for i := 0; i < n; i++ {
+		cases = append(cases, genCase(r, kind))
+	}
+	invalid := diffInvalidSearch
+	if kind != "search" {
+		invalid = diffInvalidMetrics
+	}
+	for _, q := range invalid {
+		c := genCase(r, kind)
+		c.Query, c.Invalid = q, true
+		cases = append(cases, c)
+	}
+	return cases
+}
+
+// requireRecentTraces checks there is data to compare: with no recent traces both paths return nothing and always agree.
+func (d diffDS) requireRecentTraces(t *testing.T) {
+	t.Helper()
+	now := time.Now()
+	probe := diffCase{Kind: "search", Query: "{}", Limit: 20000, Spss: 3, From: now.Add(-5 * time.Minute).Truncate(time.Second), To: now.Add(-90 * time.Second).Truncate(time.Second)}
+	probeResp, _ := d.runDiffCase(t, probe)
+	require.NoError(t, probeResp.Error)
+	require.GreaterOrEqual(t, len(tracesOf(t, probeResp)), minRecentTraces,
+		"Tempo has too few recent traces to compare anything; is the trace generator (loadgen) running?")
+}
+
+// runBoth runs a case over both paths and returns what each one did. A stalled Tempo can time out one path and not the
+// other, so a case where only one path failed with a transient error is run once more; if it happens again it is a
+// difference.
+func (d diffDS) runBoth(t *testing.T, c diffCase) (httpResp backend.DataResponse, packets []json.RawMessage, httpErr, streamErr string) {
+	t.Helper()
+	httpResp, packets = d.runDiffCase(t, c)
+	httpErr, streamErr = caseErrors(t, httpResp, packets)
+	if (httpErr == "") != (streamErr == "") && isTransient(httpErr+streamErr) {
+		t.Logf("retrying after a transient error\n  http:   %q\n  stream: %q", httpErr, streamErr)
+		httpResp, packets = d.runDiffCase(t, c)
+		httpErr, streamErr = caseErrors(t, httpResp, packets)
+	}
+	return httpResp, packets, httpErr, streamErr
+}
+
+// requireEqualWithWholeSeconds explains a difference by the sub-second time range (#312): the HTTP path truncates the
+// metrics time range to whole seconds, the streaming path doesn't. It runs the case again with whole seconds, and if the
+// paths still differ then it is something else.
+func (d diffDS) requireEqualWithWholeSeconds(t *testing.T, kind string, c diffCase, rerun string) {
+	t.Helper()
+	whole := c
+	whole.Fractional = false
+	whole.From, whole.To = c.From.Truncate(time.Second), c.To.Truncate(time.Second)
+	wholeResp, wholePackets := d.runDiffCase(t, whole)
+	wholeHTTPErr, wholeStreamErr := caseErrors(t, wholeResp, wholePackets)
+	require.Empty(t, wholeHTTPErr+wholeStreamErr, "the case with a whole-second range failed\n  case: %s", whole)
+	if diff := compareMetrics(t, kind == "range", wholeResp.Frames, streamedFrames(t, wholePackets)); diff != "" {
+		t.Fatalf("streaming and non-streaming differ, also with a whole-second range\n  case: %s\n%s\nrerun: %s", whole, diff, rerun)
+	}
+}
+
+// checkCase runs one case over both paths and fails the test on a difference that is not a known gap. rerun says how to
+// repeat the run.
+func (d diffDS) checkCase(t *testing.T, kind string, c diffCase, rerun string) caseResult {
+	t.Helper()
+	httpResp, packets, httpErr, streamErr := d.runBoth(t, c)
+	if httpErr != "" || streamErr != "" {
+		require.True(t, httpErr != "" && streamErr != "", "only one path failed\n  http:   %q\n  stream: %q\n  case: %s", httpErr, streamErr, c)
+		return caseResult{outcome: outcomeBothFailed}
+	}
+	require.False(t, c.Invalid, "an invalid query was accepted by both paths\n  case: %s", c)
+
+	var diff string
+	var spanSetGap bool
+	if kind == "search" {
+		diff, spanSetGap = d.compareSearch(t, c, httpResp, packets)
+	} else {
+		diff = compareMetrics(t, kind == "range", httpResp.Frames, streamedFrames(t, packets))
+	}
+	res := caseResult{hasData: hasData(kind, httpResp)}
+	switch {
+	case diff == "" && spanSetGap:
+		res.outcome = outcomeSpanSetGap
+		t.Logf("known gap (several span sets, #314): the HTTP table keeps only the first span set when Tempo sends `spanSet`, streaming keeps all: %s", c)
+	case diff == "":
+		res.outcome = outcomeEqual
+	case kind != "search" && c.Fractional:
+		d.requireEqualWithWholeSeconds(t, kind, c, rerun)
+		res.outcome = outcomeTimeRangeGap
+		t.Logf("known gap (#312, time range with a sub-second part): %s\n%s", c, diff)
+	default:
+		t.Fatalf("streaming and non-streaming differ\n  case: %s\n%s\nrerun: %s", c, diff, rerun)
+	}
+	return res
+}
+
 func TestDifferential_GeneratedQueries_RealTempo(t *testing.T) {
 	url := os.Getenv("DIFF_TEMPO_URL")
 	if url == "" {
@@ -243,102 +353,36 @@ func TestDifferential_GeneratedQueries_RealTempo(t *testing.T) {
 	n := envInt("DIFF_CASES", 60)
 	t.Logf("seed=%d cases per kind=%d (rerun with DIFF_SEED=%d)", seed, n, seed)
 	r := rand.New(rand.NewSource(seed))
+	rerun := fmt.Sprintf("DIFF_SEED=%d DIFF_CASES=%d", seed, n)
 
 	settings := backend.DataSourceInstanceSettings{UID: "tempo", Name: "Tempo", URL: url, JSONData: []byte(`{}`)}
 	inst, err := NewDatasource(context.Background(), settings)
 	require.NoError(t, err)
 	d := diffDS{ds: inst.(*DataSource), pCtx: backend.PluginContext{DataSourceInstanceSettings: &settings}}
+	d.requireRecentTraces(t)
 
-	// With no recent traces both paths return nothing and always agree, so check there is data to compare.
-	now := time.Now()
-	probe := diffCase{Kind: "search", Query: "{}", Limit: 20000, Spss: 3, From: now.Add(-5 * time.Minute).Truncate(time.Second), To: now.Add(-90 * time.Second).Truncate(time.Second)}
-	probeResp, _ := d.runDiffCase(t, probe)
-	require.NoError(t, probeResp.Error)
-	require.GreaterOrEqual(t, len(tracesOf(t, probeResp)), minRecentTraces,
-		"Tempo has too few recent traces to compare anything; is the trace generator (loadgen) running?")
-
-	var stats struct{ compared, bothErr, knownGap, spanSetGap int }
-	withData := map[string]int{} // compared cases per kind that returned something, over any path
-	comparedBy := map[string]int{}
+	var outcomes [4]int // cases per caseOutcome, over all kinds
 	for _, kind := range []string{"search", "range", "instant"} {
-		cases := make([]diffCase, 0, n+len(diffInvalidSearch))
-		for i := 0; i < n; i++ {
-			cases = append(cases, genCase(r, kind))
-		}
-		// Invalid queries run every time, whatever the seed.
-		invalid := diffInvalidSearch
-		if kind != "search" {
-			invalid = diffInvalidMetrics
-		}
-		for _, q := range invalid {
-			c := genCase(r, kind)
-			c.Query, c.Invalid = q, true
-			cases = append(cases, c)
-		}
-		for i, c := range cases {
+		var compared, withData int
+		for i, c := range generateCases(r, kind, n) {
 			t.Run(fmt.Sprintf("%s/%03d", kind, i), func(t *testing.T) {
-				httpResp, packets := d.runDiffCase(t, c)
-				httpErr, streamErr := caseErrors(t, httpResp, packets)
-				// A stalled Tempo can time out one path and not the other. Run the case again before calling that a
-				// difference; if it happens again it is one.
-				if (httpErr == "") != (streamErr == "") && isTransient(httpErr+streamErr) {
-					t.Logf("retrying after a transient error\n  http:   %q\n  stream: %q", httpErr, streamErr)
-					httpResp, packets = d.runDiffCase(t, c)
-					httpErr, streamErr = caseErrors(t, httpResp, packets)
-				}
-				if httpErr != "" || streamErr != "" {
-					require.True(t, httpErr != "" && streamErr != "", "only one path failed\n  http:   %q\n  stream: %q\n  case: %s", httpErr, streamErr, c)
-					stats.bothErr++
-					return
-				}
-				require.False(t, c.Invalid, "an invalid query was accepted by both paths\n  case: %s", c)
-
-				var diff string
-				var spanSetGap bool
-				if kind == "search" {
-					diff, spanSetGap = d.compareSearch(t, c, httpResp, packets)
-				} else {
-					diff = compareMetrics(t, kind == "range", httpResp.Frames, streamedFrames(t, packets))
-				}
-				comparedBy[kind]++
-				if hasData(kind, httpResp) {
-					withData[kind]++
-				}
-				if diff == "" {
-					if spanSetGap {
-						stats.spanSetGap++
-						t.Logf("known gap (several span sets, #314): the HTTP table keeps only the first span set when Tempo sends `spanSet`, streaming keeps all: %s", c)
-						return
+				res := d.checkCase(t, kind, c, rerun)
+				outcomes[res.outcome]++
+				if res.outcome != outcomeBothFailed {
+					compared++
+					if res.hasData {
+						withData++
 					}
-					stats.compared++
-					return
 				}
-				// The HTTP path truncates the metrics time range to whole seconds, the streaming path doesn't (#312). That
-				// can explain a difference, so run the case again with whole seconds: if the paths still differ, it is
-				// something else.
-				if kind != "search" && c.Fractional {
-					whole := c
-					whole.Fractional = false
-					whole.From, whole.To = c.From.Truncate(time.Second), c.To.Truncate(time.Second)
-					wholeResp, wholePackets := d.runDiffCase(t, whole)
-					wholeHTTPErr, wholeStreamErr := caseErrors(t, wholeResp, wholePackets)
-					require.Empty(t, wholeHTTPErr+wholeStreamErr, "the case with a whole-second range failed\n  case: %s", whole)
-					if wholeDiff := compareMetrics(t, kind == "range", wholeResp.Frames, streamedFrames(t, wholePackets)); wholeDiff != "" {
-						t.Fatalf("streaming and non-streaming differ, also with a whole-second range\n  case: %s\n%s\nrerun: DIFF_SEED=%d DIFF_CASES=%d", whole, wholeDiff, seed, n)
-					}
-					stats.knownGap++
-					t.Logf("known gap (#312, time range with a sub-second part): %s\n%s", c, diff)
-					return
-				}
-				t.Fatalf("streaming and non-streaming differ\n  case: %s\n%s\nrerun: DIFF_SEED=%d DIFF_CASES=%d", c, diff, seed, n)
 			})
 		}
 		// Two paths that both return nothing always agree, so a run in which most cases come back empty proves little.
-		t.Logf("%s: %d compared, %d of them with data", kind, comparedBy[kind], withData[kind])
-		require.GreaterOrEqual(t, withData[kind]*100, minShareWithData*comparedBy[kind],
-			"%s: only %d of %d compared cases returned data; the generated queries or time windows do not match the data", kind, withData[kind], comparedBy[kind])
+		t.Logf("%s: %d compared, %d of them with data", kind, compared, withData)
+		require.GreaterOrEqual(t, withData*100, minShareWithData*compared,
+			"%s: only %d of %d compared cases returned data; the generated queries or time windows do not match the data", kind, withData, compared)
 	}
-	t.Logf("compared and equal: %d, both failed the same way: %d, known gap (metrics, fractional range): %d, known gap (several span sets): %d", stats.compared, stats.bothErr, stats.knownGap, stats.spanSetGap)
+	t.Logf("compared and equal: %d, both failed the same way: %d, known gap (metrics, fractional range): %d, known gap (several span sets): %d",
+		outcomes[outcomeEqual], outcomes[outcomeBothFailed], outcomes[outcomeTimeRangeGap], outcomes[outcomeSpanSetGap])
 }
 
 // tracesOf reads the traces of a non-streaming search response.

@@ -551,15 +551,46 @@ type streamedAttribute struct {
 	} `json:"value"`
 }
 
+type streamedSpan struct {
+	SpanID            string              `json:"spanID"`
+	Name              string              `json:"name"`
+	StartTimeUnixNano uint64              `json:"startTimeUnixNano"`
+	DurationNanos     uint64              `json:"durationNanos"`
+	Attributes        []streamedAttribute `json:"attributes"`
+}
+
 type streamedSpanSet struct {
 	Attributes []streamedAttribute `json:"attributes"`
-	Spans      []struct {
-		SpanID            string              `json:"spanID"`
-		Name              string              `json:"name"`
-		StartTimeUnixNano uint64              `json:"startTimeUnixNano"`
-		DurationNanos     uint64              `json:"durationNanos"`
-		Attributes        []streamedAttribute `json:"attributes"`
-	} `json:"spans"`
+	Spans      []streamedSpan      `json:"spans"`
+}
+
+// streamedTrace is a trace of the streamed search result. Tempo sends the first span set as `spanSet` and all of them
+// as `spanSets`.
+type streamedTrace struct {
+	TraceID           string            `json:"traceID"`
+	RootServiceName   string            `json:"rootServiceName"`
+	RootTraceName     string            `json:"rootTraceName"`
+	DurationMs        float64           `json:"durationMs"`
+	StartTimeUnixNano uint64            `json:"startTimeUnixNano"`
+	SpanSet           *streamedSpanSet  `json:"spanSet"`
+	SpanSets          []streamedSpanSet `json:"spanSets"`
+}
+
+// decodeStreamedTraces reads the traces of the final streamed packet, which must be in state done.
+func decodeStreamedTraces(t *testing.T, packets []json.RawMessage) []streamedTrace {
+	t.Helper()
+	require.NotEmpty(t, packets)
+	var packet data.Frame
+	require.NoError(t, json.Unmarshal(packets[len(packets)-1], &packet))
+	state, _ := packet.FieldByName("state")
+	require.Equal(t, "done", state.At(0))
+	result, _ := packet.FieldByName("result")
+	raw, _ := result.At(0).(json.RawMessage)
+	var traces []streamedTrace
+	if len(raw) > 0 {
+		require.NoError(t, json.Unmarshal(raw, &traces))
+	}
+	return traces
 }
 
 // signatures describes the spans of the set. The HTTP table puts the attributes of the span set on every span first and
@@ -587,25 +618,7 @@ func (set streamedSpanSet) signatures() []string {
 
 func streamedTraces(t *testing.T, packets []json.RawMessage) []diffTrace {
 	t.Helper()
-	require.NotEmpty(t, packets)
-	var packet data.Frame
-	require.NoError(t, json.Unmarshal(packets[len(packets)-1], &packet))
-	state, _ := packet.FieldByName("state")
-	require.Equal(t, "done", state.At(0))
-	result, _ := packet.FieldByName("result")
-	raw := result.At(0).(json.RawMessage)
-	var traces []struct {
-		TraceID           string            `json:"traceID"`
-		RootServiceName   string            `json:"rootServiceName"`
-		RootTraceName     string            `json:"rootTraceName"`
-		DurationMs        float64           `json:"durationMs"`
-		StartTimeUnixNano uint64            `json:"startTimeUnixNano"`
-		SpanSet           *streamedSpanSet  `json:"spanSet"`
-		SpanSets          []streamedSpanSet `json:"spanSets"`
-	}
-	if len(raw) > 0 {
-		require.NoError(t, json.Unmarshal(raw, &traces))
-	}
+	traces := decodeStreamedTraces(t, packets)
 	var out []diffTrace
 	for _, tr := range traces {
 		// The frontend builds the tables from `spanSets` and only falls back to the deprecated `spanSet`
@@ -629,19 +642,7 @@ func streamedTraces(t *testing.T, packets []json.RawMessage) []diffTrace {
 // streamedSpanIDs returns, per streamed trace, the IDs of the spans in its span sets.
 func streamedSpanIDs(t *testing.T, packets []json.RawMessage) map[string][]string {
 	t.Helper()
-	require.NotEmpty(t, packets)
-	var packet data.Frame
-	require.NoError(t, json.Unmarshal(packets[len(packets)-1], &packet))
-	result, _ := packet.FieldByName("result")
-	var traces []struct {
-		TraceID  string `json:"traceID"`
-		SpanSets []struct {
-			Spans []struct {
-				SpanID string `json:"spanID"`
-			} `json:"spans"`
-		} `json:"spanSets"`
-	}
-	require.NoError(t, json.Unmarshal(result.At(0).(json.RawMessage), &traces))
+	traces := decodeStreamedTraces(t, packets)
 	out := map[string][]string{}
 	for _, tr := range traces {
 		ids := []string{}
