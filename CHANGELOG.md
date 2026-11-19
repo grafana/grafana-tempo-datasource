@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 13.5.0
 
+- Allow multiple TraceQL queries ([#272](https://github.com/grafana/grafana-tempo-datasource/pull/272))
+- Fix streaming on Grafana 12.3 ([#310](https://github.com/grafana/grafana-tempo-datasource/pull/310))
+- Fix duplicated headers sent to Tempo over streaming, such as the Team LBAC policy header ([#277](https://github.com/grafana/grafana-tempo-datasource/pull/277))
 - Add routes to plugin.json ([#316](https://github.com/grafana/grafana-tempo-datasource/pull/316))
+- Update dependencies
 
 ## 13.4.2
 
