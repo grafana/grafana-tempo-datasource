@@ -20,7 +20,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/config"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-plugin-sdk-go/experimental/featuretoggles"
-	"github.com/grafana/tempo/pkg/tempopb"
+	"github.com/grafana/tempo/v3/pkg/tempopb"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"

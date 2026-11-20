@@ -7,9 +7,9 @@ import (
 	"math"
 
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	commonv11 "github.com/grafana/tempo/pkg/tempopb/common/v1"
-	v1 "github.com/grafana/tempo/pkg/tempopb/resource/v1"
-	tracev11 "github.com/grafana/tempo/pkg/tempopb/trace/v1"
+	commonv11 "github.com/grafana/tempo/v3/pkg/tempopb/common/v1"
+	v1 "github.com/grafana/tempo/v3/pkg/tempopb/resource/v1"
+	tracev11 "github.com/grafana/tempo/v3/pkg/tempopb/trace/v1"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 )
