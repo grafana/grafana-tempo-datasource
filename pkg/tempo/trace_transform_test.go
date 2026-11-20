@@ -10,10 +10,10 @@ import (
 	//nolint:all
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/tempo/pkg/tempopb"
-	commonv11 "github.com/grafana/tempo/pkg/tempopb/common/v1"
-	resourcev1 "github.com/grafana/tempo/pkg/tempopb/resource/v1"
-	v1 "github.com/grafana/tempo/pkg/tempopb/trace/v1"
+	"github.com/grafana/tempo/v3/pkg/tempopb"
+	commonv11 "github.com/grafana/tempo/v3/pkg/tempopb/common/v1"
+	resourcev1 "github.com/grafana/tempo/v3/pkg/tempopb/resource/v1"
+	v1 "github.com/grafana/tempo/v3/pkg/tempopb/trace/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
