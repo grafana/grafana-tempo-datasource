@@ -6,7 +6,14 @@ export function secondsAgo(seconds: number): Date {
   return new Date(Math.floor((Date.now() - seconds * 1000) / 1000) * 1000);
 }
 
-// Whether the body of a /api/ds/query request holds the query we ran: the same datasource and query text. Explore can
+// Whether a URL is the endpoint the Grafana frontend sends queries to: /api/ds/query, or on newer Grafana (as on the
+// Cloud stack) /apis/datasource.grafana.app/<version>/namespaces/<namespace>/query.
+export function isQueryUrl(url: string): boolean {
+  const { pathname } = new URL(url);
+  return pathname.includes('/api/ds/query') || /^\/apis\/[^/]+\/[^/]+\/namespaces\/[^/]+\/query$/.test(pathname);
+}
+
+// Whether the body of a query request holds the query we ran: the same datasource and query text. Explore can
 // send other queries at the same time, and the page can query other datasources.
 export function isQueryRequest(body: unknown, uid: string, query: unknown): boolean {
   const queries = (body as { queries?: Array<{ datasource?: { uid?: string }; query?: unknown }> } | null)?.queries;

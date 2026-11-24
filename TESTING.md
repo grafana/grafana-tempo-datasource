@@ -49,6 +49,16 @@ A related bug the generated test does not reach: a span attribute that is an arr
 
 The test prints the seed and the case: rerun it with `DIFF_SEED=<seed> DIFF_CASES=<n>` to get the same queries. The seed fixes the queries, not the time windows: they are taken from the current time (windows of 30 to 120 seconds that ended 90 to 150 seconds ago), so a rerun uses slightly different windows over the same data. It fails if Tempo has too few recent traces, and also if fewer than half of the compared cases of a kind return any data, because two paths that both return nothing always agree. The windows stay inside the last 270 seconds because the CI job only waits for traces from 4 to 5 minutes ago; widen them only together with that wait. A case where only one path times out is run once more before it counts.
 
+## Team LBAC against Grafana Cloud Traces
+
+Only Grafana Cloud Traces enforces a team LBAC rule, so a local Grafana and OSS Tempo cannot test it, and the fake-Tempo tests cover only what the plugin sends. `tests/e2e/teamLbac.spec.ts` closes the gap in the nightly Cloud run (`cron.yml`). It logs in as a member of a test team and runs the same queries over both paths, against two data sources on one traces tenant with the same rule and only `streamingEnabled` different. It checks that both paths return the same permitted traces, that spans of other services are hidden on both, and that a data source of the same tenant without the rule still returns them. It does not compare metrics queries: TraceQL metrics on a tenant fed by a few fixture traces are timing-sensitive, and the fake-Tempo tests already cover range and instant metrics with the team policy over both paths.
+
+The test data sources, the team and the rule are provisioned outside this repository, on the shared Cloud stack. The spec runs with the signed-in session of the Cloud workflow, which is the shared Cloud e2e admin and the only member of the test team. It skips outside Cloud runs. `TEMPO_LBAC_DS_STREAMING_UID` and `TEMPO_LBAC_DS_NON_STREAMING_UID` optionally override the UIDs of the two data sources.
+
+Before it queries, the spec pushes a few fixture traces of the allowed service and of another one over OTLP. It does so when `TEMPO_LBAC_SEED_USER`, `TEMPO_LBAC_SEED_URL` and `TEMPO_LBAC_SEED_TOKEN` (the credentials of a write-only OTLP endpoint of the test stack) are set. The nightly workflow reads them from its secret store.
+
+The rule keeps only spans with `resource.service.name="tempo-lbac-e2e-allowed"`, so the traces tenant needs fixture spans from that service and from at least one other.
+
 ## Checking that a test can fail
 
 A test that cannot fail proves nothing. After adding or changing one, break the code it is meant to protect (swap two arguments, drop a header, change a unit), run the suite, and check that the test fails. Restore the code afterwards. We did this for the tests above with 53 request, header and result faults and 34 team-policy (LBAC) faults; the results are in the description of the pull requests that added them.

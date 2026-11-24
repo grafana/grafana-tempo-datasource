@@ -2,6 +2,7 @@ import {
   finalLiveResult,
   framesFromStreamedResult,
   isQueryRequest,
+  isQueryUrl,
   parseLiveMessages,
   secondsAgo,
   summarize,
@@ -194,5 +195,24 @@ describe('isQueryRequest', () => {
     expect(isQueryRequest(null, 'a', '{}')).toBe(false);
     expect(isQueryRequest({}, 'a', '{}')).toBe(false);
     expect(isQueryRequest(body(null), 'a', '{}')).toBe(false);
+  });
+});
+
+describe('isQueryUrl', () => {
+  it.each([
+    'https://grafana.example/api/ds/query?ds_type=tempo',
+    'https://grafana.example/api/ds/query',
+    'https://grafana.example/apis/datasource.grafana.app/v0alpha1/namespaces/stacks-1/query',
+    'http://localhost:3000/apis/query.grafana.app/v0alpha1/namespaces/default/query',
+  ])('accepts %s', (url) => {
+    expect(isQueryUrl(url)).toBe(true);
+  });
+
+  it.each([
+    'https://grafana.example/api/query-history',
+    'https://grafana.example/apis/tempo.datasource.grafana.app/v0alpha1/namespaces/stacks-1/datasources/x/resources/tags',
+    'https://grafana.example/api/datasources',
+  ])('rejects %s', (url) => {
+    expect(isQueryUrl(url)).toBe(false);
   });
 });
