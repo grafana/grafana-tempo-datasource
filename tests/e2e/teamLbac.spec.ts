@@ -3,6 +3,7 @@ import { expect, test } from '@grafana/plugin-e2e';
 import { runNonStreaming, runStreaming, waitForData } from './streamingDifferential.driver';
 import {
   framesFromStreamedResult,
+  isQueryUrl,
   summarize,
   traceIdsFromFrames,
   traceIdsFromStreamedTraces,
@@ -62,7 +63,7 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
       }
     });
     page.on('response', async (response) => {
-      if (!response.url().includes('/api/ds/query')) {
+      if (!isQueryUrl(response.url())) {
         return;
       }
       const body = await response.text().catch(() => '');
@@ -71,7 +72,13 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
           .exec(body)?.[1]
           ?.replace(/https?:\/\/\S+/g, '<url>')
           .replace(/\d{4,}/g, '<n>') ?? '';
-      trail.push(`query ${response.status()}${error ? ` error="${error}"` : ''}`);
+      let keys = '';
+      try {
+        keys = Object.keys(JSON.parse(body)).slice(0, 5).join(',');
+      } catch {
+        // Not JSON; nothing to list.
+      }
+      trail.push(`query ${response.status()}${keys ? ` keys=${keys}` : ''}${error ? ` error="${error}"` : ''}`);
     });
 
     const login = await page.request.post('/login', { data: { user: lbacUser, password: lbacPassword } });

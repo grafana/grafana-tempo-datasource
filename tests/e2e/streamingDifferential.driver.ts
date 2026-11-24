@@ -6,6 +6,7 @@ import { type Page } from '@playwright/test';
 import {
   finalLiveResult,
   isQueryRequest,
+  isQueryUrl,
   parseLiveMessages,
   secondsAgo,
   traceIdsFromFrames,
@@ -70,7 +71,7 @@ async function runQuery(page: Page, explorePage: ExplorePage, run: QueryRun): Pr
     .click({ timeout: ACTION_TIMEOUT_MS });
 }
 
-// The non-streaming response: frames from the /api/ds/query response that contains `marker`.
+// The non-streaming response: frames from the query response that contains `marker`.
 export async function runNonStreaming(
   page: Page,
   explorePage: ExplorePage,
@@ -80,7 +81,7 @@ export async function runNonStreaming(
   // The test timeout is long because waitForData can take minutes, so the waits below have their own, shorter limits.
   const responsePromise = page.waitForResponse(
     async (r) => {
-      if (!r.url().includes('/api/ds/query') || !r.ok()) {
+      if (!isQueryUrl(r.url()) || !r.ok()) {
         return false;
       }
       if (!isQueryRequest(r.request().postDataJSON(), run.uid, run.query.query)) {
