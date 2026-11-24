@@ -1,4 +1,4 @@
-import { ALLOWED_SERVICE, DENIED_SERVICE, buildOtlpTraces } from './teamLbac.seed';
+import { ALLOWED_SERVICE, DENIED_SERVICE, buildOtlpTraces, traceIdsOf } from './teamLbac.seed';
 
 type Built = {
   resourceSpans: Array<{
@@ -27,5 +27,15 @@ describe('buildOtlpTraces', () => {
 
   it('writes the start time in nanoseconds as a string', () => {
     expect(built.resourceSpans[0].scopeSpans[0].spans[0].startTimeUnixNano).toBe('1700000000000000000');
+  });
+
+  it('lists the trace ids of each service separately', () => {
+    const payload = buildOtlpTraces(1_700_000_000_000);
+    const allowed = traceIdsOf(payload, ALLOWED_SERVICE);
+    const denied = traceIdsOf(payload, DENIED_SERVICE);
+    expect(allowed).toHaveLength(3);
+    expect(denied).toHaveLength(3);
+    expect(allowed.filter((id) => denied.includes(id))).toEqual([]);
+    expect(traceIdsOf(payload, 'another-service')).toEqual([]);
   });
 });

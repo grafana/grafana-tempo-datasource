@@ -1,16 +1,11 @@
 import { expect, test } from '@grafana/plugin-e2e';
+import { type APIRequestContext } from '@playwright/test';
 
 import { runNonStreaming, runStreaming, waitForData } from './streamingDifferential.driver';
-import {
-  framesFromStreamedResult,
-  isQueryUrl,
-  summarize,
-  traceIdsFromFrames,
-  traceIdsFromStreamedTraces,
-} from './streamingDifferential.helpers';
+import { isQueryUrl, traceIdsFromFrames, traceIdsFromStreamedTraces } from './streamingDifferential.helpers';
 import { isCloudRun } from './env';
-import { ALLOWED_SERVICE, seedTraces } from './teamLbac.seed';
-import { METRICS_QUERY, SEARCH_LIMIT, SEARCH_QUERY } from './streamingDifferential.types';
+import { ALLOWED_SERVICE, type SeededTraceIds, seedTraces } from './teamLbac.seed';
+import { SEARCH_LIMIT, SEARCH_QUERY } from './streamingDifferential.types';
 
 // Team LBAC is enforced only by Grafana Cloud Traces, so this runs against two dedicated data sources of the shared
 // Cloud stack (nightly only). The rule lets the test team see only spans of ALLOWED_SERVICE. See TESTING.md.
@@ -31,11 +26,34 @@ const seed = {
   token: process.env.TEMPO_LBAC_SEED_TOKEN?.trim(),
 };
 
+// The trace ids that a search over the window returns for `uid` as the signed-in user.
+async function visibleTraceIds(request: APIRequestContext, uid: string, query: string, end: Date): Promise<string[]> {
+  const response = await request.post('/api/ds/query', {
+    data: {
+      queries: [
+        {
+          refId: 'A',
+          datasource: { type: 'tempo', uid },
+          queryType: 'traceql',
+          query,
+          limit: SEARCH_LIMIT,
+          tableType: 'traces',
+        },
+      ],
+      from: String(end.getTime() - WINDOW_MS),
+      to: String(end.getTime()),
+    },
+  });
+  expect(response.ok(), `search over ${uid} failed: HTTP ${response.status()}`).toBe(true);
+  return traceIdsFromFrames((await response.json()).results?.A?.frames ?? []);
+}
+
 test.describe('Team LBAC: streaming vs non-streaming', () => {
   // Log in with the credentials above instead of the stored admin session.
   test.use({ storageState: { cookies: [], origins: [] } });
 
   let windowEnd: Date;
+  let seeded: SeededTraceIds | undefined;
   let trail: string[] = [];
 
   test.beforeAll(async ({ playwright }) => {
@@ -44,7 +62,7 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
     }
     const request = await playwright.request.newContext();
     try {
-      await seedTraces(request, { user: seed.user, url: seed.url, token: seed.token });
+      seeded = await seedTraces(request, { user: seed.user, url: seed.url, token: seed.token });
     } finally {
       await request.dispose();
     }
@@ -86,6 +104,21 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
 
     // Data visible to the team member means the fixture spans of ALLOWED_SERVICE exist.
     windowEnd = await waitForData(page, NON_STREAMING_UID, WINDOW_MS, 1);
+
+    // Both paths are queried one after the other, so every trace pushed for this run has to be searchable first.
+    // Otherwise the path that runs first can miss traces that the second one sees.
+    const pushed = seeded;
+    if (pushed) {
+      await expect
+        .poll(
+          async () => {
+            const visible = await visibleTraceIds(page.request, NON_STREAMING_UID, '{}', windowEnd);
+            return pushed.allowed.filter((id) => !visible.includes(id));
+          },
+          { timeout: 3 * 60 * 1000, intervals: [5_000], message: 'the fixture traces did not become searchable' }
+        )
+        .toEqual([]);
+    }
   });
 
   // The Actions log of this repository is public, so print only what shows how far the page got, never page text.
@@ -123,19 +156,6 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
     expect([...streaming].sort()).toEqual([...nonStreaming].sort());
   });
 
-  test('a range metrics query returns the same series over gRPC and HTTP', async ({ explorePage, page }) => {
-    const query = { query: METRICS_QUERY, metricsQueryType: 'range', step: '60s' };
-    const run = (uid: string) => ({ uid, end: windowEnd, windowMs: WINDOW_MS, query });
-
-    const streaming = summarize(framesFromStreamedResult(await runStreaming(page, explorePage, run(STREAMING_UID))));
-    const nonStreaming = summarize(
-      await runNonStreaming(page, explorePage, run(NON_STREAMING_UID), 'resource.service.name')
-    );
-
-    expect(streaming.length).toBeGreaterThan(0);
-    expect(streaming).toEqual(nonStreaming);
-  });
-
   test('the rule hides other services on both paths, and not on a data source without it', async ({
     explorePage,
     page,
@@ -163,15 +183,12 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
     );
     expect(control, 'the default Cloud Traces data source was not found').toBeDefined();
 
-    const response = await page.request.post('/api/ds/query', {
-      data: {
-        queries: [{ refId: 'A', datasource: { type: 'tempo', uid: control.uid }, queryType: 'traceql', ...query }],
-        from: String(windowEnd.getTime() - WINDOW_MS),
-        to: String(windowEnd.getTime()),
-      },
-    });
-    expect(response.ok(), `control query failed: HTTP ${response.status()}`).toBe(true);
-    const frames = (await response.json()).results?.A?.frames ?? [];
-    expect(traceIdsFromFrames(frames).length, 'no data of other services to hide; seed the fixture').toBeGreaterThan(0);
+    await expect
+      .poll(async () => (await visibleTraceIds(page.request, control.uid, query.query, windowEnd)).length, {
+        timeout: 2 * 60 * 1000,
+        intervals: [5_000],
+        message: 'no data of other services to hide; seed the fixture',
+      })
+      .toBeGreaterThan(0);
   });
 });

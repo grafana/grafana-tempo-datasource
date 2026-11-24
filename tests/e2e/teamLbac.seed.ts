@@ -20,7 +20,23 @@ type Span = {
 const hex = (bytes: number): string => randomBytes(bytes).toString('hex');
 
 // `startMs` is when the first trace starts; the traces follow one second apart.
-export function buildOtlpTraces(startMs: number): { resourceSpans: unknown[] } {
+export type OtlpTraces = {
+  resourceSpans: Array<{
+    resource: { attributes: Array<{ key: string; value: { stringValue: string } }> };
+    scopeSpans: Array<{ scope: { name: string }; spans: Span[] }>;
+  }>;
+};
+
+export type SeededTraceIds = { allowed: string[]; denied: string[] };
+
+// The trace ids of the spans of `service` in a payload built by buildOtlpTraces.
+export function traceIdsOf(payload: OtlpTraces, service: string): string[] {
+  return payload.resourceSpans
+    .filter((r) => r.resource.attributes.some((a) => a.key === 'service.name' && a.value.stringValue === service))
+    .flatMap((r) => r.scopeSpans.flatMap((s) => s.spans.map((span) => span.traceId)));
+}
+
+export function buildOtlpTraces(startMs: number): OtlpTraces {
   const resourceSpans = [ALLOWED_SERVICE, DENIED_SERVICE].map((service) => {
     const spans: Span[] = Array.from({ length: TRACES_PER_SERVICE }, (_, i) => {
       const start = BigInt(startMs + i * 1000) * 1_000_000n;
@@ -45,16 +61,18 @@ export function buildOtlpTraces(startMs: number): { resourceSpans: unknown[] } {
 export async function seedTraces(
   request: APIRequestContext,
   { url, user, token }: { url: string; user: string; token: string }
-): Promise<void> {
+): Promise<SeededTraceIds> {
   // Three minutes back keeps the spans inside the windows the spec queries, which end 90 seconds ago.
+  const payload = buildOtlpTraces(Date.now() - 3 * 60 * 1000);
   const response = await request.post(`${url.replace(/\/$/, '')}/v1/traces`, {
     headers: {
       Authorization: `Basic ${Buffer.from(`${user}:${token}`).toString('base64')}`,
       'Content-Type': 'application/json',
     },
-    data: buildOtlpTraces(Date.now() - 3 * 60 * 1000),
+    data: payload,
   });
   if (!response.ok()) {
     throw new Error(`seeding fixture traces failed: HTTP ${response.status()} ${await response.text()}`);
   }
+  return { allowed: traceIdsOf(payload, ALLOWED_SERVICE), denied: traceIdsOf(payload, DENIED_SERVICE) };
 }
