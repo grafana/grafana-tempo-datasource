@@ -25,6 +25,9 @@ jobs:
       repo-secrets: |
         DS_INSTANCE_NAME=tempoEKS:name
         DS_INSTANCE_URL=tempoEKS:url
+        TEMPO_LBAC_SEED_USER=tempo-lbac-e2e:user
+        TEMPO_LBAC_SEED_URL=tempo-lbac-e2e:url
+        TEMPO_LBAC_SEED_TOKEN=tempo-lbac-e2e:token
 
   notify-slack:
     name: Notify Slack on failure
