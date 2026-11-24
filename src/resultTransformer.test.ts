@@ -180,6 +180,7 @@ describe('parseUploadedTraceData()', () => {
     const malformed = { resourceSpans: [{ resource: {}, instrumentation_library_spans: [] }] };
     expect(parseUploadedTraceData(JSON.stringify(malformed))).toBeNull();
   });
+
 });
 
 describe('transformFromOTLP()', () => {
@@ -195,10 +196,7 @@ describe('transformFromOTLP()', () => {
   });
 
   test('keeps a single-trace file in one frame', () => {
-    const res = transformFromOTLP(
-      otlpResponse.batches as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
-      false
-    );
+    const res = transformFromOTLP(otlpResponse.batches as unknown as collectorTypes.ResourceSpans[], false);
     expect(res.data).toHaveLength(1);
   });
 
@@ -219,7 +217,7 @@ describe('transformFromOTLP()', () => {
           },
         ],
       },
-    ] as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[];
+    ] as unknown as collectorTypes.ResourceSpans[];
 
     const res = transformFromOTLP(traceData, false);
     expect(res.data).toHaveLength(2); // one frame per distinct trace ID
@@ -253,7 +251,7 @@ describe('transformFromOTLP()', () => {
           },
         ],
       },
-    ] as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[];
+    ] as unknown as collectorTypes.ResourceSpans[];
 
     const res = transformFromOTLP(traceData, false);
     expect(res.error).toBeUndefined();

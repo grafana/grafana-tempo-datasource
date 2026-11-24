@@ -149,10 +149,10 @@ interface OtlpScope {
 interface OtlpScopeSpans {
   scope?: OtlpScope;
   instrumentationLibrary?: OtlpScope;
-  spans?: collectorTypes.opentelemetryProto.trace.v1.Span[];
+  spans?: collectorTypes.Span[];
 }
 interface OtlpResourceSpans {
-  resource?: collectorTypes.opentelemetryProto.resource.v1.Resource;
+  resource?: collectorTypes.Resource;
   scopeSpans?: OtlpScopeSpans[];
   instrumentationLibrarySpans?: OtlpScopeSpans[];
 }
@@ -169,7 +169,7 @@ interface OtlpTraceRecord {
  * newline-delimited records (one ExportTraceServiceRequest per line) as emitted
  * by the file trace exporter. Returns null if the input is not trace data.
  */
-export function parseUploadedTraceData(raw: string): collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] | null {
+export function parseUploadedTraceData(raw: string): collectorTypes.ResourceSpans[] | null {
   // Try the whole file as a single JSON document first. This covers compact and
   // pretty-printed JSON, where splitting on newlines would break parsing.
   const whole = parseTraceRecord(raw);
@@ -180,7 +180,7 @@ export function parseUploadedTraceData(raw: string): collectorTypes.opentelemetr
   // Otherwise treat the file as newline-delimited records. A single JSON document
   // fails the whole-file parse only when it spans multiple top-level records, so
   // this branch handles the file exporter's newline-delimited output.
-  const resourceSpans: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] = [];
+  const resourceSpans: collectorTypes.ResourceSpans[] = [];
   const lines = raw
     .split('\n')
     .map((line) => line.trim())
@@ -200,7 +200,7 @@ export function parseUploadedTraceData(raw: string): collectorTypes.opentelemetr
  * Parses a single JSON document into normalized ResourceSpans, or null if it
  * isn't trace data. Shared by the whole-file and per-line paths.
  */
-function parseTraceRecord(text: string): collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] | null {
+function parseTraceRecord(text: string): collectorTypes.ResourceSpans[] | null {
   let record: OtlpTraceRecord;
   try {
     record = JSON.parse(text);
@@ -217,7 +217,7 @@ function parseTraceRecord(text: string): collectorTypes.opentelemetryProto.trace
     return null;
   }
 
-  const resourceSpans: collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[] = [];
+  const resourceSpans: collectorTypes.ResourceSpans[] = [];
   for (const rs of spans) {
     // Accept either the modern (scopeSpans) or legacy (instrumentationLibrarySpans)
     // key; anything else is malformed/unsupported and should surface as an error.
