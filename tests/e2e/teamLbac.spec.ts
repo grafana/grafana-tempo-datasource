@@ -35,6 +35,7 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
   let windowEnd: Date;
+  let trail: string[] = [];
 
   test.beforeAll(async ({ playwright }) => {
     if (!isCloudRun || !seed.user || !seed.url || !seed.token) {
@@ -53,6 +54,26 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
     test.skip(!lbacUser || !lbacPassword, 'GRAFANA_ADMIN_USER and GRAFANA_ADMIN_PASSWORD are not set.');
     test.setTimeout(6 * 60 * 1000);
 
+    // Kept for the failure diagnostics below: where the page went and how each query answered.
+    trail = [];
+    page.on('framenavigated', (frame) => {
+      if (frame === page.mainFrame()) {
+        trail.push(`nav ${new URL(frame.url()).pathname}`);
+      }
+    });
+    page.on('response', async (response) => {
+      if (!response.url().includes('/api/ds/query')) {
+        return;
+      }
+      const body = await response.text().catch(() => '');
+      const error =
+        /"error":"([^"]{0,100})/
+          .exec(body)?.[1]
+          ?.replace(/https?:\/\/\S+/g, '<url>')
+          .replace(/\d{4,}/g, '<n>') ?? '';
+      trail.push(`query ${response.status()}${error ? ` error="${error}"` : ''}`);
+    });
+
     const login = await page.request.post('/login', { data: { user: lbacUser, password: lbacPassword } });
     expect(login.ok(), `logging in as ${lbacUser} failed: HTTP ${login.status()}`).toBe(true);
 
@@ -69,7 +90,7 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
       .evaluate(() => ({
         path: location.pathname,
         title: document.title,
-        radios: document.querySelectorAll('[role="radio"]').length,
+        radios: document.querySelectorAll('input[type="radio"], [role="radio"]').length,
         loginForm: !!document.querySelector('input[name="user"], input[name="password"]'),
         dialogs: Array.from(document.querySelectorAll('[role="dialog"] h1, [role="dialog"] h2')).map((h) =>
           (h.textContent ?? '').slice(0, 80)
@@ -77,7 +98,9 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
         alerts: document.querySelectorAll('[role="alert"]').length,
       }))
       .catch((error: unknown) => ({ evaluateFailed: String(error).slice(0, 120) }));
-    console.log(`teamLbac diagnostics for "${testInfo.title}": ${JSON.stringify(state)}`);
+    console.log(
+      `teamLbac diagnostics for "${testInfo.title}": ${JSON.stringify({ ...state, trail: trail.slice(-12) })}`
+    );
   });
 
   test('a search returns the same permitted traces over gRPC and HTTP', async ({ explorePage, page }) => {
