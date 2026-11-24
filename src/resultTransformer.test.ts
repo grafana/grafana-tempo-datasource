@@ -181,6 +181,26 @@ describe('parseUploadedTraceData()', () => {
     expect(parseUploadedTraceData(JSON.stringify(malformed))).toBeNull();
   });
 
+  test('returns null when a resourceSpans or scopeSpans entry is not an object', () => {
+    expect(parseUploadedTraceData('{"resourceSpans":[null]}')).toBeNull();
+    expect(parseUploadedTraceData('{"resourceSpans":[{"scopeSpans":[null]}]}')).toBeNull();
+  });
+
+  test('accepts a resource that omits attributes', () => {
+    const record = {
+      resourceSpans: [
+        {
+          resource: {},
+          scopeSpans: [
+            { spans: [{ traceId: 'a', spanId: 'b', name: 'op', startTimeUnixNano: 1, endTimeUnixNano: 2 }] },
+          ],
+        },
+      ],
+    };
+    const res = transformFromOTLP(parseUploadedTraceData(JSON.stringify(record)) ?? [], false);
+    expect(res.error).toBeUndefined();
+    expect(res.data[0].length).toBe(1);
+  });
 });
 
 describe('transformFromOTLP()', () => {

@@ -152,7 +152,7 @@ interface OtlpScopeSpans {
   spans?: collectorTypes.Span[];
 }
 interface OtlpResourceSpans {
-  resource?: collectorTypes.Resource;
+  resource?: Partial<collectorTypes.Resource>;
   scopeSpans?: OtlpScopeSpans[];
   instrumentationLibrarySpans?: OtlpScopeSpans[];
 }
@@ -209,11 +209,11 @@ function parseTraceRecord(text: string): collectorTypes.ResourceSpans[] | null {
   }
   // JSON.parse can yield null or a primitive (e.g. the input is `null` or `5`);
   // typeof null is "object", so guard it explicitly before reading fields.
-  if (record === null || typeof record !== 'object') {
+  if (!isObject(record)) {
     return null;
   }
   const spans = record.resourceSpans ?? record.batches;
-  if (!Array.isArray(spans)) {
+  if (!Array.isArray(spans) || !spans.every(isObject)) {
     return null;
   }
 
@@ -222,11 +222,11 @@ function parseTraceRecord(text: string): collectorTypes.ResourceSpans[] | null {
     // Accept either the modern (scopeSpans) or legacy (instrumentationLibrarySpans)
     // key; anything else is malformed/unsupported and should surface as an error.
     const scopeSpans = rs.scopeSpans ?? rs.instrumentationLibrarySpans;
-    if (!Array.isArray(scopeSpans)) {
+    if (!Array.isArray(scopeSpans) || !scopeSpans.every(isObject)) {
       return null;
     }
     resourceSpans.push({
-      resource: rs.resource,
+      resource: rs.resource && { ...rs.resource, attributes: rs.resource.attributes ?? [] },
       instrumentationLibrarySpans: scopeSpans.map((ss) => {
         const library = ss.scope ?? ss.instrumentationLibrary;
         return {
@@ -237,6 +237,10 @@ function parseTraceRecord(text: string): collectorTypes.ResourceSpans[] | null {
     });
   }
   return resourceSpans.length > 0 ? resourceSpans : null;
+}
+
+function isObject(value: unknown): value is object {
+  return typeof value === 'object' && value !== null;
 }
 
 export function transformFromOTLP(
