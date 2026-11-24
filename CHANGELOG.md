@@ -1,5 +1,9 @@
 # Changelog
 
+## 13.5.1
+
+- Update frontend dependencies ([#296](https://github.com/grafana/grafana-tempo-datasource/pull/296))
+
 ## 13.5.0
 
 - Allow multiple TraceQL queries ([#272](https://github.com/grafana/grafana-tempo-datasource/pull/272))
