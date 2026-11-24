@@ -2,6 +2,8 @@ package tempo
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
@@ -199,4 +201,34 @@ func TestQueryWithMultipleFunctions_ReturnsTrue(t *testing.T) {
 func TestQueryWithInvalidFunction_ReturnsFalse(t *testing.T) {
 	result := isMetricsQuery("{} | invalid_function(foo)")
 	assert.False(t, result)
+}
+
+func TestRunTraceQlQueryMetrics_AllowsUnknownJSONFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"series":[],"UNKNOWN":"UNKNOWN_VALUE"}`))
+	}))
+	defer server.Close()
+
+	ds := &DataSource{
+		info:   &DatasourceInfo{URL: server.URL, HTTPClient: server.Client()},
+		logger: backend.NewLoggerWith("logger", "tsdb.tempo.test"),
+	}
+
+	tests := []struct {
+		queryType dataquery.MetricsQueryType
+		query     string
+	}{
+		{queryType: dataquery.MetricsQueryTypeInstant, query: "{} | rate()"},
+		{queryType: dataquery.MetricsQueryTypeRange, query: "{} | rate()"},
+	}
+
+	for _, tt := range tests {
+		queryType := tt.queryType
+		query := tt.query
+		_, err := ds.runTraceQlQueryMetrics(context.Background(), backend.PluginContext{}, backend.DataQuery{}, &dataquery.TempoQuery{
+			Query:            &query,
+			MetricsQueryType: &queryType,
+		})
+		assert.NoError(t, err)
+	}
 }

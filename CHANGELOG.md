@@ -1,3 +1,72 @@
+# Changelog
+
+## 13.5.0
+
+- Allow multiple TraceQL queries ([#272](https://github.com/grafana/grafana-tempo-datasource/pull/272))
+- Fix streaming on Grafana 12.3 ([#310](https://github.com/grafana/grafana-tempo-datasource/pull/310))
+- Add routes to plugin.json ([#316](https://github.com/grafana/grafana-tempo-datasource/pull/316))
+- Harden header forwarding for streaming queries so they match non-streaming queries, including Team LBAC headers ([#277](https://github.com/grafana/grafana-tempo-datasource/pull/277))
+- Compile the backend with the FIPS 140-3 crypto module ([#303](https://github.com/grafana/grafana-tempo-datasource/pull/303))
+- Fix security vulnerability in `glob` by updating to v14 ([#293](https://github.com/grafana/grafana-tempo-datasource/pull/293))
+- Update backend dependencies ([#289](https://github.com/grafana/grafana-tempo-datasource/pull/289), [#304](https://github.com/grafana/grafana-tempo-datasource/pull/304))
+- Update node.js to v24.22.2 ([#295](https://github.com/grafana/grafana-tempo-datasource/pull/295))
+
+## 13.4.2
+
+- Fix a connection freeze between Grafana and the plugin under heavy query load by updating google.golang.org/grpc to v1.85.0 ([grpc/grpc-go#9330](https://github.com/grpc/grpc-go/issues/9330))
+- Update frontend dependencies
+
+## 13.4.1
+
+- Update backend dependencies ([#271](https://github.com/grafana/grafana-tempo-datasource/pull/271), [#287](https://github.com/grafana/grafana-tempo-datasource/pull/287))
+- Update node.js to v24.22.1 ([#285](https://github.com/grafana/grafana-tempo-datasource/pull/285))
+
+## 13.4.0
+
+- Add Trace ID query type with span pruning and filter options ([#262](https://github.com/grafana/grafana-tempo-datasource/pull/262))
+
+## 13.3.0
+
+- Fix TraceQL query editor being cut off or collapsing at some browser zoom levels ([#274](https://github.com/grafana/grafana-tempo-datasource/pull/274))
+- Fix trace ID queries that use the `traceId` query type not running ([#275](https://github.com/grafana/grafana-tempo-datasource/pull/275))
+- Fix security vulnerabilities ([#276](https://github.com/grafana/grafana-tempo-datasource/pull/276))
+- Update Go to 1.27.3 ([#279](https://github.com/grafana/grafana-tempo-datasource/pull/279))
+
+## 13.2.4
+
+- Fix security vulnerabilities (CVE-2026-102278, CVE-2026-102276, CVE-2026-102990)
+
+## 13.2.3
+
+- Fix security vulnerabilities (CVE-2026-54285, CVE-2026-84445)
+
+## 13.2.2
+
+- Fix security vulnerabilities (CVE-2026-73088, CVE-2026-73089, CVE-2026-75899, CVE-2026-75931, CVE-2026-75975, CVE-2026-76172, CVE-2026-84375)
+
+## 13.2.1
+
+- Dependency updates ([#226](https://github.com/grafana/grafana-tempo-datasource/pull/226))
+- Fix TraceQL instant metrics queries failing when Tempo returns new fields ([#247](https://github.com/grafana/grafana-tempo-datasource/pull/227))
+
+## 13.2.0
+
+- Bump go v1.26.7 and grafana-plugin-sdk-go v0.296.4 ([#229](https://github.com/grafana/grafana-tempo-datasource/pull/220))
+- Fix search query error details not propagated to user ([#203](https://github.com/grafana/grafana-tempo-datasource/pull/203))
+- Search: Allow a custom label for static search fields ([#205](https://github.com/grafana/grafana-tempo-datasource/pull/205))
+- Return a friendly error instead of raw HTML on non-2xx Tempo responses ([#214](https://github.com/grafana/grafana-tempo-datasource/pull/214))
+- Do not escape a single value regex in TraceQL search filters ([#211](https://github.com/grafana/grafana-tempo-datasource/pull/211))
+- Fix: Show query error details for unsupported query types instead of a generic plugin error ([#222](https://github.com/grafana/grafana-tempo-datasource/pull/222))
+- Update dependencies ([#232](https://github.com/grafana/grafana-tempo-datasource/pull/232))
+- Tempo: Normalize provisioned timeRangeForTags duration strings ([#234](https://github.com/grafana/grafana-tempo-datasource/pull/234))
+- Return a clearer error when a trace is not found in the time range ([#213](https://github.com/grafana/grafana-tempo-datasource/pull/213))
+- Fix: Avoid double slash in trace and metrics URLs ([#212](https://github.com/grafana/grafana-tempo-datasource/pull/212))
+- Tempo: Quote custom search values when tag value type is unknown ([#224](https://github.com/grafana/grafana-tempo-datasource/pull/224))
+- Tempo: Fix options row padding ([#238](https://github.com/grafana/grafana-tempo-datasource/pull/238))
+- Add valueType to getTagValues results ([#239](https://github.com/grafana/grafana-tempo-datasource/pull/239))
+- Fix: Keep last metrics payload on streaming Done ([#237](https://github.com/grafana/grafana-tempo-datasource/pull/237))
+
+
 ## 13.1.5
 
 - Fix: Avoid duplicate X-Scope-OrgID header on streaming search ([#207](https://github.com/grafana/grafana-tempo-datasource/pull/207))

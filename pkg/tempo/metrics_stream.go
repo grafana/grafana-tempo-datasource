@@ -11,6 +11,7 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/tracing"
+	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
 	"github.com/grafana/tempo/pkg/tempopb"
 	"go.opentelemetry.io/otel/attribute"
@@ -102,12 +103,16 @@ func (ds *DataSource) processMetricsStream(ctx context.Context, query string, st
 	ctx, span := tracing.DefaultTracer().Start(ctx, "datasource.tempo.processStream")
 	defer span.End()
 	messageCount := 0
+	var lastResult []*data.Frame
+	var lastMetrics *tempopb.SearchMetrics
 	for {
 		msg, err := stream.Recv()
 		messageCount++
 		span.SetAttributes(attribute.Int("message_count", messageCount))
 		if errors.Is(err, io.EOF) {
-			if err := ds.sendResponse(ctx, nil, nil, dataquery.SearchStreamingStateDone, sender); err != nil {
+			// Keep last payload on Done so the frontend (especially instant replace
+			// semantics) does not clear results when the stream completes.
+			if err := ds.sendResponse(ctx, lastResult, lastMetrics, dataquery.SearchStreamingStateDone, sender); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())
 				return err
@@ -122,6 +127,8 @@ func (ds *DataSource) processMetricsStream(ctx context.Context, query string, st
 		}
 
 		transformed := traceql.TransformMetricsResponse(query, *msg)
+		lastResult = transformed
+		lastMetrics = msg.Metrics
 
 		if err := ds.sendResponse(ctx, transformed, msg.Metrics, dataquery.SearchStreamingStateStreaming, sender); err != nil {
 			span.RecordError(err)
@@ -137,12 +144,16 @@ func (ds *DataSource) processInstantMetricsStream(ctx context.Context, stream te
 	ctx, span := tracing.DefaultTracer().Start(ctx, "datasource.tempo.processStream")
 	defer span.End()
 	messageCount := 0
+	var lastResult []*data.Frame
+	var lastMetrics *tempopb.SearchMetrics
 	for {
 		msg, err := stream.Recv()
 		messageCount++
 		span.SetAttributes(attribute.Int("message_count", messageCount))
 		if errors.Is(err, io.EOF) {
-			if err := ds.sendResponse(ctx, nil, nil, dataquery.SearchStreamingStateDone, sender); err != nil {
+			// Keep last payload on Done so the frontend (especially instant replace
+			// semantics) does not clear results when the stream completes.
+			if err := ds.sendResponse(ctx, lastResult, lastMetrics, dataquery.SearchStreamingStateDone, sender); err != nil {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, err.Error())
 				return err
@@ -157,6 +168,8 @@ func (ds *DataSource) processInstantMetricsStream(ctx context.Context, stream te
 		}
 
 		transformed := traceql.TransformInstantMetricsResponse(*msg)
+		lastResult = transformed
+		lastMetrics = msg.Metrics
 
 		if err := ds.sendResponse(ctx, transformed, msg.Metrics, dataquery.SearchStreamingStateStreaming, sender); err != nil {
 			span.RecordError(err)

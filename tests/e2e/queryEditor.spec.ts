@@ -2,8 +2,7 @@
 import { expect, test } from '@grafana/plugin-e2e';
 import { type Locator, type Page } from '@playwright/test';
 
-const DS_NAME = process.env.DS_INSTANCE_NAME || 'Tempo';
-const DS_UID = 'tempo';
+import { isCloudRun, resolveDataSourceUid } from './env';
 
 // Tempo's docker-compose stack (TNS db/app/loadgen) continuously emits traces
 // via the Jaeger SDK, so we always have fresh data within the last few minutes.
@@ -17,27 +16,29 @@ const DYNAMIC_FROM_ISO = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 // shapes so tests work across versions until @grafana/plugin-e2e ships a fix
 // and this repo upgrades.
 function getQueryEditorRow(page: Page, refId: string): Locator {
-  return page
-    .locator('[data-testid="data-testid Query editor row"], [aria-label="Query editor row"]')
-    .filter({
-      has: page.locator(
-        `[data-testid="data-testid Query editor row title ${refId}"], [aria-label="Query editor row title ${refId}"]`
-      ),
-    });
+  return page.locator('[data-testid="data-testid Query editor row"], [aria-label="Query editor row"]').filter({
+    has: page.locator(
+      `[data-testid="data-testid Query editor row title ${refId}"], [aria-label="Query editor row title ${refId}"]`
+    ),
+  });
 }
 
-// Builds an Explore URL with a Tempo query pre-encoded in the panes parameter.
+// Builds Explore query parameters with a Tempo query encoded in `panes`.
 // Uses the computed ISO timestamps so the query lands within the live trace
 // window. `query` is the TraceQL string for queryType=traceql; ignored for
 // other query types.
-function exploreUrl(queryType: string, extra: Record<string, unknown> = {}): string {
+function exploreQueryParams(
+  dataSourceUid: string,
+  queryType: string,
+  extra: Record<string, unknown> = {}
+): URLSearchParams {
   const panes = JSON.stringify({
     explore: {
-      datasource: DS_UID,
+      datasource: dataSourceUid,
       queries: [
         {
           refId: 'A',
-          datasource: { type: 'tempo', uid: DS_UID },
+          datasource: { type: 'tempo', uid: dataSourceUid },
           queryType,
           ...extra,
         },
@@ -45,42 +46,35 @@ function exploreUrl(queryType: string, extra: Record<string, unknown> = {}): str
       range: { from: DYNAMIC_FROM_ISO, to: DYNAMIC_TO_ISO },
     },
   });
-  return `/explore?orgId=1&schemaVersion=1&panes=${encodeURIComponent(panes)}`;
+  return new URLSearchParams({ orgId: '1', schemaVersion: '1', panes });
 }
 
 // Switches the Tempo query type by clicking the radio button. Never relies on
 // the URL to set the query type — the URL is read on first load only and the
 // editor re-renders when a different radio is checked.
-async function switchQueryType(page: Page, name: 'Search' | 'TraceQL' | 'Service Graph'): Promise<void> {
+async function switchQueryType(page: Page, name: 'Search' | 'TraceQL' | 'Service Graph' | 'Trace ID'): Promise<void> {
   const radio = getQueryEditorRow(page, 'A').getByRole('radio', { name, exact: true });
   await radio.click();
   await expect(radio).toBeChecked();
 }
 
 test.describe('Query editor', () => {
-  test.beforeEach(async ({ explorePage }) => {
-    // explorePage.goto() is called by the fixture before this hook runs.
-    // Tempo is provisioned as the default — datasource.set() confirms the
-    // selection without firing a new query (Grafana treats it as a no-op
-    // when unchanged).
-    await explorePage.datasource.set(DS_NAME);
+  test.beforeEach(async ({ explorePage, page }) => {
+    const dataSourceUid = await resolveDataSourceUid(page);
+    await explorePage.goto({ queryParams: exploreQueryParams(dataSourceUid, 'traceqlSearch') });
   });
 
   test.describe('rendering', () => {
-    test(
-      'smoke: renders TraceQL query type tabs',
-      { tag: '@plugins' },
-      async ({ page }) => {
-        const queryRow = getQueryEditorRow(page, 'A');
-        // The Tempo query editor exposes a RadioButtonGroup with three modes.
-        // The "Import trace" button next to the radios opens a modal for
-        // uploading a trace JSON; it is not its own query type.
-        await expect(queryRow.getByRole('radio', { name: 'Search', exact: true })).toBeVisible({ timeout: 30_000 });
-        await expect(queryRow.getByRole('radio', { name: 'TraceQL', exact: true })).toBeVisible();
-        await expect(queryRow.getByRole('radio', { name: 'Service Graph', exact: true })).toBeVisible();
-        await expect(queryRow.getByRole('button', { name: 'Import trace' })).toBeVisible();
-      }
-    );
+    test('smoke: renders TraceQL query type tabs', { tag: '@plugins' }, async ({ page }) => {
+      const queryRow = getQueryEditorRow(page, 'A');
+      // The Tempo query editor exposes a RadioButtonGroup with three modes.
+      // The "Import trace" button next to the radios opens a modal for
+      // uploading a trace JSON; it is not its own query type.
+      await expect(queryRow.getByRole('radio', { name: 'Search', exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(queryRow.getByRole('radio', { name: 'TraceQL', exact: true })).toBeVisible();
+      await expect(queryRow.getByRole('radio', { name: 'Service Graph', exact: true })).toBeVisible();
+      await expect(queryRow.getByRole('button', { name: 'Import trace' })).toBeVisible();
+    });
 
     test('Search mode shows TraceQL filter controls', async ({ page }) => {
       const queryRow = getQueryEditorRow(page, 'A');
@@ -135,12 +129,39 @@ test.describe('Query editor', () => {
       // limit, table format, streaming) in its accessible name. Asserting on
       // the summary string is more robust than asserting on the labelled
       // inputs that only render when the panel is expanded.
-      await expect(
-        queryRow.getByRole('button', { name: /Search Options.*Limit:.*Table Format:/ })
-      ).toBeVisible();
+      await expect(queryRow.getByRole('button', { name: /Search Options.*Limit:.*Table Format:/ })).toBeVisible();
     });
   });
 
+  test.describe('Trace ID tab', () => {
+    test('smoke: shows the trace ID input and both option groups', async ({ page }) => {
+      const queryRow = getQueryEditorRow(page, 'A');
+      await switchQueryType(page, 'Trace ID');
+      await expect(queryRow.getByPlaceholder('Enter a Trace ID (run with Enter)')).toBeVisible();
+      // Only proves the groups mounted -- QueryOptionGroup's summary shows regardless of open state.
+      await expect(queryRow.getByRole('button', { name: /Span Pruning Options/ })).toBeVisible();
+      await expect(queryRow.getByRole('button', { name: /Filter Options/ })).toBeVisible();
+    });
+
+    test('expanding Span Pruning Options reveals its fields', async ({ page }) => {
+      const queryRow = getQueryEditorRow(page, 'A');
+      await switchQueryType(page, 'Trace ID');
+      // No htmlFor wired through EditorField+AutoSizeInput, so select by label text, not role.
+      const minSpansLabel = queryRow.getByText('Min Spans', { exact: true });
+      await expect(minSpansLabel).toHaveCount(0);
+      await queryRow.getByRole('button', { name: /Span Pruning Options/ }).click();
+      await expect(minSpansLabel).toBeVisible();
+    });
+
+    test('expanding Filter Options reveals its fields', async ({ page }) => {
+      const queryRow = getQueryEditorRow(page, 'A');
+      await switchQueryType(page, 'Trace ID');
+      const matchDepthLabel = queryRow.getByText('Match Depth', { exact: true });
+      await expect(matchDepthLabel).toHaveCount(0);
+      await queryRow.getByRole('button', { name: /Filter Options/ }).click();
+      await expect(matchDepthLabel).toBeVisible();
+    });
+  });
 });
 
 // These tests use real trace data continuously emitted by the TNS demo apps
@@ -148,6 +169,10 @@ test.describe('Query editor', () => {
 // URL with a known query pre-encoded in the panes parameter and asserts on the
 // response shape.
 test.describe('Query editor with live trace data', () => {
+  test.beforeEach(() => {
+    test.skip(isCloudRun, 'Relies on traces and service-graph metrics produced by the local TNS stack.');
+  });
+
   // Serialize live-data tests so they don't compete for the shared Tempo
   // instance and produce slow responses that look like failures.
   test.describe.configure({ mode: 'serial' });
@@ -160,7 +185,7 @@ test.describe('Query editor with live trace data', () => {
   // rendering tests above already prove that the editor for each query type
   // mounts and is interactive.
   test.describe('Service Graph', () => {
-    test('returns a 2xx for the default Service Graph query', async ({ page }) => {
+    test('returns a 2xx for the default Service Graph query', async ({ explorePage, page }) => {
       // Service Graph fans out to several Prometheus queries via the
       // configured serviceMap.datasourceUid, each with a refId like
       // `traces_service_graph_request_*`. There is no `results.A` to assert
@@ -171,11 +196,10 @@ test.describe('Query editor with live trace data', () => {
           return false;
         }
         const b = await r.json().catch(() => null);
-        return Object.values(b?.results ?? {}).some(
-          (v: any) => Array.isArray(v?.frames)
-        );
+        return Object.values(b?.results ?? {}).some((v: any) => Array.isArray(v?.frames));
       });
-      await page.goto(exploreUrl('serviceMap'));
+      const dataSourceUid = await resolveDataSourceUid(page);
+      await explorePage.goto({ queryParams: exploreQueryParams(dataSourceUid, 'serviceMap') });
       const response = await responsePromise;
       expect(response.ok()).toBe(true);
     });

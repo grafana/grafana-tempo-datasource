@@ -17,6 +17,7 @@ import {
   dateTime,
   FieldType,
   LoadingState,
+  MetricFindValue,
   NodeGraphDataFrameFieldNames,
   rangeUtil,
   type ScopedVars,
@@ -234,12 +235,12 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
   }
 
   // Allows to retrieve the list of tag values for ad-hoc filters
-  getTagValues(options: DataSourceGetTagValuesOptions<TempoQuery>): Promise<Array<{ text: string }>> {
+  getTagValues(options: DataSourceGetTagValuesOptions<TempoQuery>): Promise<MetricFindValue[]> {
     const query = this.languageProvider.generateQueryFromFilters({ adhocFilters: options.filters });
     return this.tagValuesQuery(options.key, query, options?.timeRange ?? undefined);
   }
 
-  async tagValuesQuery(tag: string, query: string, range?: TimeRange): Promise<Array<{ text: string }>> {
+  async tagValuesQuery(tag: string, query: string, range?: TimeRange): Promise<MetricFindValue[]> {
     // For V2, we need to send scope and tag name, e.g. `span.http.status_code`,
     // unless the tag has intrinsic scope
     const options = await this.languageProvider.getOptionsV2({
@@ -250,7 +251,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     });
 
     return options.flatMap((option: SelectableValue<string>) =>
-      option.value !== undefined ? [{ text: option.value }] : []
+      option.value !== undefined ? [{ text: option.value, ...this.getTagValueProperties(option) }] : []
     );
   }
 
@@ -424,6 +425,32 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
       }
     }
 
+    // Trace ID (dedicated tab)
+    if (targets.traceId?.length) {
+      try {
+        // Default on here (not in the shared handleTraceIdQuery) so the TraceQL tab's hex-detect
+        // path doesn't gain a param it never sent before. applyVariables per-target (not just for
+        // the telemetry value) so a templated trace ID is expanded before dispatch, not sent literally.
+        const traceIdTargets = targets.traceId.map((t) =>
+          this.applyVariables({ ...t, spanPruning: t.spanPruning ?? true }, options.scopedVars)
+        );
+        const queryValue = traceIdTargets[0]?.query || '';
+
+        reportInteraction('grafana_traces_traceId_tab_queried', {
+          datasourceType: 'tempo',
+          app: options.app ?? '',
+          grafana_version: config.buildInfo.version,
+          hasQuery: queryValue !== '',
+          spanPruningEnabled: traceIdTargets[0].spanPruning,
+          keepHierarchyEnabled: !!traceIdTargets[0].keepHierarchy,
+        });
+
+        subQueries.push(this.handleTraceIdQuery(options, traceIdTargets, queryValue));
+      } catch (error) {
+        return of({ error: { message: error instanceof Error ? error.message : 'Unknown error occurred' }, data: [] });
+      }
+    }
+
     // Search
     if (targets.traceqlSearch?.length) {
       if (targets.traceqlSearch[0].groupBy) {
@@ -564,6 +591,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     return {
       ...expandedQuery,
       query: this.templateSrv.replace(query.query ?? '', scopedVars, VariableFormatID.Pipe),
+      filterQuery: this.templateSrv.replace(query.filterQuery ?? '', scopedVars, VariableFormatID.Pipe),
       serviceMapQuery: Array.isArray(query.serviceMapQuery)
         ? query.serviceMapQuery.map((query) => this.templateSrv.replace(query, scopedVars))
         : this.templateSrv.replace(query.serviceMapQuery ?? '', scopedVars),
@@ -582,7 +610,7 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     query: string
   ): Observable<DataQueryResponse> {
     const validTargets = targets
-      .filter((t) => t.query)
+      .filter((t) => t.query?.trim())
       .map((t): TempoQuery => ({ ...t, query: t.query?.trim(), queryType: 'traceId' }));
     if (!validTargets.length) {
       return EMPTY;
@@ -627,21 +655,28 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     );
   }
 
-  handleTraceQlQuery(options: DataQueryRequest<TempoQuery>, targets: { [type: string]: TempoQuery[] }) {
-    const startTime = performance.now();
-    const traceqlSearchTargets = targets.traceqlSearch || targets.traceql;
-    const appliedQuery = this.applyVariables(traceqlSearchTargets[0], options.scopedVars);
-    let queries: TempoQuery[];
-
-    if (targets.traceqlSearch) {
-      const queryFromFilters = this.languageProvider.generateQueryFromFilters({
+  /**
+   * Returns the TraceQL query to run for a single search target: its own query text with variables applied,
+   * or, for targets built in the search editor, the query generated from its own filters.
+   */
+  getSearchQueryValue(target: TempoQuery, options: DataQueryRequest<TempoQuery>): string {
+    const appliedQuery = this.applyVariables(target, options.scopedVars);
+    if (target.queryType === 'traceqlSearch') {
+      return this.languageProvider.generateQueryFromFilters({
         traceqlFilters: appliedQuery.filters,
         adhocFilters: options.filters,
       });
-      queries = traceqlSearchTargets.map((t) => ({ ...t, query: queryFromFilters }));
-    } else {
-      queries = traceqlSearchTargets.map((t) => ({ ...t, query: appliedQuery?.query }));
     }
+    return appliedQuery.query;
+  }
+
+  handleTraceQlQuery(options: DataQueryRequest<TempoQuery>, targets: { [type: string]: TempoQuery[] }) {
+    const startTime = performance.now();
+    const traceqlSearchTargets = targets.traceqlSearch || targets.traceql;
+    const queries: TempoQuery[] = traceqlSearchTargets.map((t) => ({
+      ...t,
+      query: this.getSearchQueryValue(t, options),
+    }));
 
     return super.query({ ...options, targets: queries }).pipe(
       map((response: DataQueryResponse) => {
@@ -755,15 +790,19 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     targets: TempoQuery[],
     query: string
   ): Observable<DataQueryResponse> {
-    if (query === '') {
+    // Each target runs its own query, not the one in `query` (that one is only used for reporting)
+    const validTargets = targets
+      .map((target) => ({ ...target, query: this.getSearchQueryValue(target, options) }))
+      .filter((target) => target.query !== '');
+    if (!validTargets.length) {
       return EMPTY;
     }
 
     const startTime = performance.now();
     return merge(
-      ...targets.map((target) =>
+      ...validTargets.map((target) =>
         doTempoSearchStreaming(
-          { ...target, query: query },
+          target,
           this, // the datasource
           options,
           this.instanceSettings
@@ -867,14 +906,15 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
     return request;
   }
 
-  async metadataRequest(url: string, params = {}) {
+  async metadataRequest(url: string, params = {}, requestId?: string) {
     // url must not start with a `/`, otherwise the AJAX-request
     // going from the browser will contain `//`, which can cause problems.
     if (url.startsWith('/')) {
       throw new Error(`invalid metadata request url: ${url}`);
     }
 
-    const res = await this.getResource(url, params, { method: 'GET', hideFromInspector: true });
+    // With a requestId Grafana cancels an in flight request that shares the same id
+    const res = await this.getResource(url, params, { method: 'GET', hideFromInspector: true, requestId });
     return res?.data ?? res;
   }
 
@@ -889,6 +929,14 @@ export class TempoDatasource extends DataSourceWithBackend<TempoQuery, TempoJson
 
     const appliedQuery = this.applyVariables(query, {});
     return this.languageProvider.generateQueryFromFilters({ traceqlFilters: appliedQuery.filters });
+  }
+
+  private getTagValueProperties(option: SelectableValue<string>) {
+    if (!option.type) {
+      return {};
+    }
+
+    return { properties: { valueType: option.type } };
   }
 }
 
@@ -1287,7 +1335,20 @@ function makeTempoLinkServiceMap(
 
         // Only do the peer query if service is actively set as not instrumented
         if (isInstrumented === false) {
-          const filters = ['db.name', 'db.system', 'peer.service', 'messaging.system', 'net.peer.name']
+          const filters = [
+            // Current OpenTelemetry semantic conventions — what uninstrumented DB/peer nodes are keyed on
+            'server.address',
+            'service.peer.name',
+            'db.system.name',
+            'db.namespace',
+            'network.peer.address',
+            // Legacy names, kept for older instrumentation that still emits them
+            'db.name',
+            'db.system',
+            'peer.service',
+            'messaging.system',
+            'net.peer.name',
+          ]
             .map((peerAttribute) => `span.${peerAttribute}="${serviceName}"`)
             .join(' || ');
           query.queryType = 'traceql';

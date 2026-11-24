@@ -1,5 +1,3 @@
-import { type collectorTypes } from '@opentelemetry/exporter-collector';
-
 import {
   FieldType,
   MutableDataFrame,
@@ -9,6 +7,7 @@ import {
   type PluginMetaInfo,
 } from '@grafana/data';
 
+import type * as collectorTypes from './otlpTypes';
 import {
   transformToOTLP,
   transformFromOTLP,
@@ -186,7 +185,7 @@ describe('parseUploadedTraceData()', () => {
 describe('transformFromOTLP()', () => {
   test('transforms OTLP format to dataFrame', () => {
     const res = transformFromOTLP(
-      otlpResponse.batches as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
+      otlpResponse.batches as unknown as collectorTypes.ResourceSpans[],
       false
     );
     expect(res.data[0]).toMatchObject({
@@ -275,7 +274,7 @@ describe('transformFromOTLP()', () => {
       },
     ];
     const res = transformFromOTLP(
-      batchesWithNamespace as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
+      batchesWithNamespace as unknown as collectorTypes.ResourceSpans[],
       false
     );
     expect(res.data).toHaveLength(1);
@@ -300,7 +299,7 @@ describe('transformFromOTLP()', () => {
       },
     ];
     const res = transformFromOTLP(
-      batchesWithAltNamespace as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
+      batchesWithAltNamespace as unknown as collectorTypes.ResourceSpans[],
       false
     );
     expect(res.data).toHaveLength(1);
@@ -311,7 +310,7 @@ describe('transformFromOTLP()', () => {
 
   test('leaves serviceNamespace undefined when no namespace attribute is present', () => {
     const res = transformFromOTLP(
-      otlpResponse.batches as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
+      otlpResponse.batches as unknown as collectorTypes.ResourceSpans[],
       false
     );
     const serviceNamespaceField = res.data[0].fields.find((f: Field) => f.name === 'serviceNamespace');
@@ -614,7 +613,7 @@ describe('transformFromOTLP()', () => {
 
   test('if passed bad data, will surface an error', () => {
     const res = transformFromOTLP(
-      badOTLPResponse.batches as unknown as collectorTypes.opentelemetryProto.trace.v1.ResourceSpans[],
+      badOTLPResponse.batches as unknown as collectorTypes.ResourceSpans[],
       false
     );
 

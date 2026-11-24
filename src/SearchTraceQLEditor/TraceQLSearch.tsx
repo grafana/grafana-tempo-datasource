@@ -260,10 +260,8 @@ const TraceQLSearch = ({
           <AggregateByAlert
             query={query}
             onChange={() => {
-              delete query.groupBy;
-              onChange({
-                ...query,
-              });
+              const { groupBy, ...rest } = query;
+              onChange(rest);
             }}
           />
         </div>
