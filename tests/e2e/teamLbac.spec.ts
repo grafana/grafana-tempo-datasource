@@ -11,9 +11,8 @@ import { isCloudRun } from './env';
 import { ALLOWED_SERVICE, seedTraces } from './teamLbac.seed';
 import { METRICS_QUERY, SEARCH_LIMIT, SEARCH_QUERY } from './streamingDifferential.types';
 
-// Team LBAC is enforced only by Grafana Cloud Traces, so this runs against the managed "Tempo LBAC e2e" data sources
-// of the shared Cloud stack (nightly only). The rule lets the test team see only spans of ALLOWED_SERVICE. See
-// TESTING.md and grafana/data-sources docs/ds-instances/squads/oss-big-tent/oss-big-tent.md ("Tempo Team LBAC e2e").
+// Team LBAC is enforced only by Grafana Cloud Traces, so this runs against two dedicated data sources of the shared
+// Cloud stack (nightly only). The rule lets the test team see only spans of ALLOWED_SERVICE. See TESTING.md.
 
 const WINDOW_MS = 10 * 60 * 1000;
 
@@ -24,7 +23,7 @@ const lbacPassword = process.env.GRAFANA_ADMIN_PASSWORD?.trim();
 const STREAMING_UID = process.env.TEMPO_LBAC_DS_STREAMING_UID?.trim() || 'tempolbace2e-ds-m';
 const NON_STREAMING_UID = process.env.TEMPO_LBAC_DS_NON_STREAMING_UID?.trim() || 'tempolbace2enostreaming-ds-m';
 
-// The writer of the fixture traces: the stack ID, the OTLP gateway URL and a `traces:write` token (see TESTING.md).
+// The writer of the fixture traces: user, OTLP URL and a write-only token (see TESTING.md).
 const seed = {
   user: process.env.TEMPO_LBAC_SEED_USER?.trim(),
   url: process.env.TEMPO_LBAC_SEED_URL?.trim(),

@@ -41,8 +41,7 @@ export function buildOtlpTraces(startMs: number): { resourceSpans: unknown[] } {
   return { resourceSpans };
 }
 
-// `url` is the OTLP gateway of the stack, for example https://otlp-gateway-<zone>.grafana-dev.net/otlp, and `user` the
-// stack ID (not the traces tenant ID).
+// `url` is the OTLP endpoint of the stack (without `/v1/traces`).
 export async function seedTraces(
   request: APIRequestContext,
   { url, user, token }: { url: string; user: string; token: string }
