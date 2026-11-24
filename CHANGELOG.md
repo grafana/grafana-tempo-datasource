@@ -1,5 +1,16 @@
 # Changelog
 
+## 13.5.0
+
+- Allow multiple TraceQL queries ([#272](https://github.com/grafana/grafana-tempo-datasource/pull/272))
+- Fix streaming on Grafana 12.3 ([#310](https://github.com/grafana/grafana-tempo-datasource/pull/310))
+- Add routes to plugin.json ([#316](https://github.com/grafana/grafana-tempo-datasource/pull/316))
+- Harden header forwarding for streaming queries so they match non-streaming queries, including Team LBAC headers ([#277](https://github.com/grafana/grafana-tempo-datasource/pull/277))
+- Compile the backend with the FIPS 140-3 crypto module ([#303](https://github.com/grafana/grafana-tempo-datasource/pull/303))
+- Fix security vulnerability in `glob` by updating to v14 ([#293](https://github.com/grafana/grafana-tempo-datasource/pull/293))
+- Update backend dependencies ([#289](https://github.com/grafana/grafana-tempo-datasource/pull/289), [#304](https://github.com/grafana/grafana-tempo-datasource/pull/304))
+- Update node.js to v24.22.2 ([#295](https://github.com/grafana/grafana-tempo-datasource/pull/295))
+
 ## 13.4.2
 
 - Fix a connection freeze between Grafana and the plugin under heavy query load by updating google.golang.org/grpc to v1.85.0 ([grpc/grpc-go#9330](https://github.com/grpc/grpc-go/issues/9330))

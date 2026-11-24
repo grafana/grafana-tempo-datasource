@@ -149,6 +149,27 @@ func TestTransformTraceSearchResponse_DurationBelowOneMsIsNil(t *testing.T) {
 	assert.Nil(t, frames[0].Fields[4].At(0))
 }
 
+func TestTransformTraceSearchResponse_DurationOfOneMsIsKept(t *testing.T) {
+	pCtx := backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{UID: "u", Name: "n"}}
+	resp := &tempopb.SearchResponse{Traces: []*tempopb.TraceSearchMetadata{{
+		TraceID:           "test-trace-id",
+		RootServiceName:   "test-service-name",
+		RootTraceName:     "test-root-trace-name",
+		StartTimeUnixNano: 2000000,
+		DurationMs:        1,
+		SpanSet:           &tempopb.SpanSet{Spans: []*tempopb.Span{{SpanID: "span1", Name: "op", StartTimeUnixNano: 1000000, DurationNanos: 1000}}},
+	}}}
+
+	frames, err := transformTraceSearchResponse(pCtx, resp)
+	require.NoError(t, err)
+	require.Len(t, frames, 1)
+	require.Equal(t, 1, frames[0].Rows())
+	duration, ok := frames[0].Fields[4].At(0).(*float64)
+	require.True(t, ok)
+	require.NotNil(t, duration)
+	assert.Equal(t, 1.0, *duration)
+}
+
 func TestTransformTraceSearchResponse_UsesSpanSetsWhenSpanSetMissing(t *testing.T) {
 	pCtx := backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{UID: "u", Name: "n"}}
 	resp := &tempopb.SearchResponse{Traces: []*tempopb.TraceSearchMetadata{{
@@ -370,6 +391,40 @@ func TestTransformTraceSearchResponseSubFrame_SameNumericKeyIntAndDouble(t *test
 	require.GreaterOrEqual(t, idx, 0, "expected dynamic field count")
 	assert.Equal(t, 1.5, *(frame.Fields[idx].At(0).(*float64)))
 	assert.Equal(t, 2.0, *(frame.Fields[idx].At(1).(*float64)))
+}
+
+func TestTransformTraceSearchResponseSubFrame_AttributeValuesOfEveryType(t *testing.T) {
+	pCtx := backend.PluginContext{DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{UID: "u", Name: "n"}}
+	trace := &tempopb.TraceSearchMetadata{TraceID: "t1", RootServiceName: "svc", RootTraceName: "op", StartTimeUnixNano: 1000000, DurationMs: 10}
+	spanSet := &tempopb.SpanSet{
+		Spans: []*tempopb.Span{{
+			SpanID:            "s1",
+			Name:              "a",
+			StartTimeUnixNano: 1000000,
+			DurationNanos:     1000,
+			Attributes: []*v1.KeyValue{
+				{Key: "text", Value: &v1.AnyValue{Value: &v1.AnyValue_StringValue{StringValue: "GET"}}},
+				{Key: "status", Value: &v1.AnyValue{Value: &v1.AnyValue_IntValue{IntValue: 200}}},
+				{Key: "ratio", Value: &v1.AnyValue{Value: &v1.AnyValue_DoubleValue{DoubleValue: 0.25}}},
+				{Key: "ok", Value: &v1.AnyValue{Value: &v1.AnyValue_BoolValue{BoolValue: true}}},
+			},
+		}},
+	}
+
+	spanDynamicAttributes, spanAttributeNames, hasNameAttribute := collectSpanSetsSchema([]*tempopb.SpanSet{spanSet})
+	frame := transformTraceSearchResponseSubFrame(trace, spanSet, pCtx, spanAttributeNames, spanDynamicAttributes, hasNameAttribute)
+	require.NotNil(t, frame)
+	require.Equal(t, 1, frame.Rows())
+
+	value := func(name string) any {
+		field, _ := frame.FieldByName(name)
+		require.NotNil(t, field, "expected dynamic field %s", name)
+		return field.At(0)
+	}
+	assert.Equal(t, "GET", *(value("text").(*string)))
+	assert.Equal(t, 200.0, *(value("status").(*float64)))
+	assert.Equal(t, 0.25, *(value("ratio").(*float64)))
+	assert.Equal(t, true, *(value("ok").(*bool)))
 }
 
 func TestTransformTraceSearchResponse_NestedFramesShareUnifiedSchema(t *testing.T) {
