@@ -23,7 +23,7 @@
   "overrides": {
     "basic-ftp": "6.2.1",
     "dompurify": "3.4.17",
-    "ip-address": "10.7.1",
+    "ip-address": "10.7.4",
     "moment": "2.31.0",
     "source-map-js": "1.2.2"
   },
