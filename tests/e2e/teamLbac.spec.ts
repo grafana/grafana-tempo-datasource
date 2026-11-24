@@ -60,6 +60,26 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
     windowEnd = await waitForData(page, NON_STREAMING_UID, WINDOW_MS, 1);
   });
 
+  // The Actions log of this repository is public, so print only what shows how far the page got, never page text.
+  test.afterEach(async ({ page }, testInfo) => {
+    if (testInfo.status === testInfo.expectedStatus) {
+      return;
+    }
+    const state = await page
+      .evaluate(() => ({
+        path: location.pathname,
+        title: document.title,
+        radios: document.querySelectorAll('[role="radio"]').length,
+        loginForm: !!document.querySelector('input[name="user"], input[name="password"]'),
+        dialogs: Array.from(document.querySelectorAll('[role="dialog"] h1, [role="dialog"] h2')).map((h) =>
+          (h.textContent ?? '').slice(0, 80)
+        ),
+        alerts: document.querySelectorAll('[role="alert"]').length,
+      }))
+      .catch((error: unknown) => ({ evaluateFailed: String(error).slice(0, 120) }));
+    console.log(`teamLbac diagnostics for "${testInfo.title}": ${JSON.stringify(state)}`);
+  });
+
   test('a search returns the same permitted traces over gRPC and HTTP', async ({ explorePage, page }) => {
     const run = (uid: string) => ({ uid, end: windowEnd, windowMs: WINDOW_MS, query: SEARCH_QUERY });
 
