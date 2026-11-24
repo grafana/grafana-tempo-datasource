@@ -12,9 +12,7 @@ import { SEARCH_LIMIT, SEARCH_QUERY } from './streamingDifferential.types';
 
 const WINDOW_MS = 10 * 60 * 1000;
 
-// The shared e2e admin of the Cloud run is the member of the test team.
-const lbacUser = process.env.GRAFANA_ADMIN_USER?.trim();
-const lbacPassword = process.env.GRAFANA_ADMIN_PASSWORD?.trim();
+// The session of the Cloud run is the shared e2e admin, who is the only member of the test team.
 // Both data sources use the same traces tenant and rule; only `streamingEnabled` differs.
 const STREAMING_UID = process.env.TEMPO_LBAC_DS_STREAMING_UID?.trim() || 'tempolbace2e-ds-m';
 const NON_STREAMING_UID = process.env.TEMPO_LBAC_DS_NON_STREAMING_UID?.trim() || 'tempolbace2enostreaming-ds-m';
@@ -49,9 +47,6 @@ async function visibleTraceIds(request: APIRequestContext, uid: string, query: s
 }
 
 test.describe('Team LBAC: streaming vs non-streaming', () => {
-  // Log in with the credentials above instead of the stored admin session.
-  test.use({ storageState: { cookies: [], origins: [] } });
-
   let windowEnd: Date;
   let seeded: SeededTraceIds | undefined;
   let trail: string[] = [];
@@ -70,7 +65,6 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
 
   test.beforeEach(async ({ page }) => {
     test.skip(!isCloudRun, 'Team LBAC is enforced only by Grafana Cloud Traces.');
-    test.skip(!lbacUser || !lbacPassword, 'GRAFANA_ADMIN_USER and GRAFANA_ADMIN_PASSWORD are not set.');
     test.setTimeout(6 * 60 * 1000);
 
     // Kept for the failure diagnostics below: where the page went and how each query answered.
@@ -99,9 +93,6 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
       trail.push(`query ${response.status()}${keys ? ` keys=${keys}` : ''}${error ? ` error="${error}"` : ''}`);
     });
 
-    const login = await page.request.post('/login', { data: { user: lbacUser, password: lbacPassword } });
-    expect(login.ok(), `logging in as ${lbacUser} failed: HTTP ${login.status()}`).toBe(true);
-
     // Data visible to the team member means the fixture spans of ALLOWED_SERVICE exist.
     windowEnd = await waitForData(page, NON_STREAMING_UID, WINDOW_MS, 1);
 
@@ -112,8 +103,10 @@ test.describe('Team LBAC: streaming vs non-streaming', () => {
       await expect
         .poll(
           async () => {
-            const visible = await visibleTraceIds(page.request, NON_STREAMING_UID, '{}', windowEnd);
-            return pushed.allowed.filter((id) => !visible.includes(id));
+            // Tempo returns trace ids without their leading zeros.
+            const trimmed = (id: string) => id.replace(/^0+/, '');
+            const visible = (await visibleTraceIds(page.request, NON_STREAMING_UID, '{}', windowEnd)).map(trimmed);
+            return pushed.allowed.filter((id) => !visible.includes(trimmed(id)));
           },
           { timeout: 3 * 60 * 1000, intervals: [5_000], message: 'the fixture traces did not become searchable' }
         )
