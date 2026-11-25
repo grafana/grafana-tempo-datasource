@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/tempo/pkg/tempopb"
-	v1 "github.com/grafana/tempo/pkg/tempopb/common/v1"
+	"github.com/grafana/tempo/v3/pkg/tempopb"
+	v1 "github.com/grafana/tempo/v3/pkg/tempopb/common/v1"
 )
 
 func TransformMetricsResponse(query string, resp tempopb.QueryRangeResponse) []*data.Frame {

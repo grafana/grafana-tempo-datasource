@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	"github.com/grafana/tempo/pkg/tempopb"
+	"github.com/grafana/tempo/v3/pkg/tempopb"
 )
 
 func transformExemplarToFrame(name string, series *tempopb.TimeSeries) *data.Frame {

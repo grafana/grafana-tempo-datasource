@@ -8,8 +8,8 @@ import (
 
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-tempo-datasource/pkg/tempo/kinds/dataquery"
-	"github.com/grafana/tempo/pkg/tempopb"
-	v1 "github.com/grafana/tempo/pkg/tempopb/common/v1"
+	"github.com/grafana/tempo/v3/pkg/tempopb"
+	v1 "github.com/grafana/tempo/v3/pkg/tempopb/common/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
